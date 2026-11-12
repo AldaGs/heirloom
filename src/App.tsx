@@ -10,7 +10,7 @@ import { useMedia, usePref } from './prefs.ts';
 import { decodeRaw, fmtShutter } from './raw.ts';
 import { db } from './db.ts';
 import { decodeBitmap } from './decode.ts';
-import { exportLibrary, importLibrary, isEdited, FILTERS, albumsOf, inAlbum, byDate, withPreview, LABELS, LABEL_COLORS, base, buildPhoto, canOpenFolders, fileOf, importFolder, isImage, loadFolders, photoKey, writeSidecar, type Folder, type Photo } from './library.ts';
+import { retouchedThumb, exportLibrary, importLibrary, isEdited, FILTERS, albumsOf, inAlbum, byDate, withPreview, LABELS, LABEL_COLORS, base, buildPhoto, canOpenFolders, fileOf, importFolder, isImage, loadFolders, photoKey, writeSidecar, type Folder, type Photo } from './library.ts';
 import { Library } from './Library.tsx';
 import { Cull } from './Cull.tsx';
 import { ExportDialog, SettingsDialog, SyncDialog } from './Batch.tsx';
@@ -65,6 +65,13 @@ export function App() {
   const pipe = useRef<ReturnType<typeof createPipeline>>();
   const cur = photos.find(p => p.id === curId);
 
+  // Swap a photo's thumbnail URL for one that includes its removals (or back to the original after a revert)
+  const refreshThumb = async (p: Photo) => {
+    const b = await retouchedThumb(p).catch(() => p.thumb);
+    if (!b) return;
+    const url = URL.createObjectURL(b);
+    setPhotos(ps => ps.map(x => { if (x.id !== p.id) return x; if (x.url) URL.revokeObjectURL(x.url); return { ...x, url }; }));
+  };
   const updateId = useCallback((id: string, f: (p: Photo) => Photo) => setPhotos(ps => ps.map(p => (p.id === id ? f(p) : p))), []);
   const update = useCallback((f: (p: Photo) => Photo) => setPhotos(ps => ps.map(p => (p.id === curId ? f(p) : p))), [curId]);
 
@@ -75,6 +82,7 @@ export function App() {
       const stored = (await db.allPhotos<Photo>()).map(p => ({ ...p, v: { ...base(p), ...p.v }, hist: p.hist.map(h => ({ ...h, v: { ...base(p), ...h.v } })) }));
       for (const p of stored) saved.current.set(p.id, p);
       setPhotos(stored.map(withUrl));
+      for (const p of stored) if (p.retouch) refreshThumb(p);
       const lock: Folder[] = [];
       for (const f of await loadFolders()) {
         if ((await f.handle.queryPermission({ mode: 'readwrite' })) === 'granted') granted.current.set(f.key, f.handle);
@@ -250,7 +258,7 @@ export function App() {
       const c = new OffscreenCanvas(layer.width, layer.height); c.getContext('2d')!.putImageData(layer, 0, 0);
       const retouch = await c.convertToBlob({ type: 'image/png' });
       b.getContext('2d')!.clearRect(0, 0, b.width, b.height);
-      update(p => ({ ...p, retouch })); setLoadedId(null); setRmMsg('Removed.');
+      update(p => ({ ...p, retouch })); refreshThumb({ ...cur, retouch }); setLoadedId(null); setRmMsg('Removed.');
     } catch (e) { setRmMsg(`Couldn't remove: ${(e as Error).message}`); }
     setRmBusy(false);
   };
@@ -448,7 +456,7 @@ export function App() {
         {removing && cur ? (
           <RemovePanel size={brush} setSize={setBrush} busy={rmBusy} msg={rmMsg} hasRetouch={!!cur.retouch} done={() => setTool('edit')}
             onRemove={runRemove} onClear={() => { const b = brushRef.current; b?.getContext('2d')!.clearRect(0, 0, b.width, b.height); }}
-            onRevert={() => { if (confirm('Revert every removal on this photo?')) { update(p => ({ ...p, retouch: undefined })); setLoadedId(null); setRmMsg(''); } }} />
+            onRevert={() => { if (confirm('Revert every removal on this photo?')) { update(p => ({ ...p, retouch: undefined })); refreshThumb({ ...cur, retouch: undefined }); setLoadedId(null); setRmMsg(''); } }} />
         ) : cropping && cur ? (
           <CropPanel v={cur.v} aspect={aspect} setAspect={setAspect} angle={byKey.angle} setAngle={x => setVal('angle', x)} commit={commit}
             reset={() => resetKeys(GEOMETRY, 'Reset crop')} done={() => setTool('edit')} />

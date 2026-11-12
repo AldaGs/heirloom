@@ -7,7 +7,7 @@ const MODELS = [
   {
     file: 'migan_pipeline_v2.onnx',
     url: 'https://huggingface.co/andraniksargsyan/migan/resolve/main/migan_pipeline_v2.onnx',
-    sha256: '', // pin after the first verified download: the script prints it
+    sha256: '6f1f3530a1a2324b19752018ce756088b07973cda8d7d890034ace5c8a48c40b',
     license: 'https://raw.githubusercontent.com/Picsart-AI-Research/MI-GAN/main/LICENSE-WEIGHTS',
   },
 ];

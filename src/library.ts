@@ -185,3 +185,13 @@ export function importLibrary(ps: Photo[], text: string) {
   }
   return { photos: ps.map(p => updates.get(p.id) ?? p), matched: updates.size, total: j.photos.length, missing };
 }
+
+/** Thumbnail with the AI Remove layer drawn over it (thumb itself stays original so reverting is lossless). */
+export async function retouchedThumb(p: Photo): Promise<Blob | undefined> {
+  if (!p.thumb || !p.retouch) return p.thumb;
+  const [t, r] = await Promise.all([createImageBitmap(p.thumb), createImageBitmap(p.retouch)]);
+  const c = new OffscreenCanvas(t.width, t.height), g = c.getContext('2d')!;
+  g.drawImage(t, 0, 0); g.imageSmoothingQuality = 'high'; g.drawImage(r, 0, 0, t.width, t.height);
+  t.close(); r.close();
+  return c.convertToBlob({ type: 'image/webp', quality: 0.8 });
+}
