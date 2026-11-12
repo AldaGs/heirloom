@@ -13,7 +13,9 @@ export const GROUPS: { id: string; label: string; keys: string[]; on: boolean }[
   { id: 'detail', label: 'Detail', keys: ['sharpen', 'nrLuma', 'nrColor'], on: true },
   { id: 'optics', label: 'Optics', keys: ['distortion', 'ca'], on: true },
   { id: 'geometry', label: 'Crop & straighten', keys: GEOMETRY, on: false },
-  { id: 'calib', label: 'Calibration', keys: keysFrom('shadowTint'), on: true },
+  { id: 'calib', label: 'Calibration', keys: keysFrom('shadowTint', 'm0_exposure'), on: true },
+  // mask sliders only mean something with that photo's own mask shapes, so they're never synced by default
+  { id: 'masks', label: 'Mask adjustments', keys: keysFrom('m0_exposure'), on: false },
 ];
 
 export type SyncOpts = { groups: Set<string>; autoExposure: boolean };
@@ -40,6 +42,6 @@ export function planSync(src: Target, dst: Target, o: SyncOpts, auto?: () => num
     if (next !== v.temp) notes.push('temp clamped');
     if (src.raw !== dst.raw) notes.push('WB copied across RAW/JPEG: check it');
   }
-  if (o.autoExposure && auto) { v.exposure = +auto().toFixed(2); notes.push('auto exposure'); }
+  if (o.autoExposure && auto) { v.exposure = +auto().toFixed(3); notes.push('auto exposure'); }
   return { v, notes };
 }

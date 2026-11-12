@@ -1,4 +1,5 @@
-import { BANDS, type Values } from './sliders.ts';
+import { BANDS, MASKS, maskKey, orient, type Values } from './sliders.ts';
+import { maskUniforms } from './pipeline-uniforms.ts';
 import { buildLut } from './curve.ts';
 import DEVELOP, { SCALARS } from './develop.glsl.ts';
 
@@ -58,7 +59,7 @@ export function createPipeline(canvas: HTMLCanvasElement) {
   const prepSrgb = program(PREP_SRGB, VERT_PREP), prepRaw = program(PREP_RAW, VERT_PREP), prepPatch = program(PREP_PATCH, VERT_PREP), encode = program(ENCODE, VERT_PREP), dev = program(DEVELOP);
   const locs = new Map<string, WebGLUniformLocation | null>();
   const loc = (n: string) => { if (!locs.has(n)) locs.set(n, gl.getUniformLocation(dev, n)); return locs.get(n)!; };
-  gl.useProgram(dev); gl.uniform1i(loc('L'), 0); gl.uniform1i(loc('LUT'), 1);
+  gl.useProgram(dev); gl.uniform1i(loc('L'), 0); gl.uniform1i(loc('LUT'), 1); gl.uniform1i(loc('M'), 2);
 
   gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
@@ -71,6 +72,12 @@ export function createPipeline(canvas: HTMLCanvasElement) {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R16F, 256, 1);
+  // Mask texture: channel i = mask slot i (1×1 empty until masks are set)
+  const maskTex = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, maskTex);
+  for (const [k, x] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, x);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+  let maskOn = [0, 0, 0, 0], maskLevels = 0;
   gl.activeTexture(gl.TEXTURE0);
   let lin: WebGLTexture | null = null, isRaw = false, srcW = 1, srcH = 1, lods = { lodTex: 0, lodClar: 0, lodHaze: 0, lodSharp: 0 };
 
@@ -131,6 +138,21 @@ export function createPipeline(canvas: HTMLCanvasElement) {
       lods = { lodTex: base + 1, lodClar: base + 4, lodHaze: base + 6, lodSharp: Math.max(0.5, base - 0.5) };
       canvas.width = srcW = w; canvas.height = srcH = h; isRaw = s.kind === 'raw';
     },
+    /** Mask slots as 8-bit coverage (R channel used), all the same size; undefined = empty slot. */
+    setMasks(masks: (ImageData | undefined)[]) {
+      const first = masks.find(Boolean);
+      maskOn = Array.from({ length: MASKS }, (_, i) => (masks[i] ? 1 : 0));
+      gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, maskTex);
+      if (!first) { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); }
+      else {
+        const { width: w, height: h } = first, px = new Uint8Array(w * h * 4);
+        masks.forEach((m, i) => { if (m) for (let j = 0; j < w * h; j++) px[j * 4 + i] = m.data[j * 4]; });
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      }
+      gl.generateMipmap(gl.TEXTURE_2D); // mip levels = feathered versions
+      maskLevels = Math.floor(Math.log2(Math.max(first?.width ?? 1, first?.height ?? 1)));
+      gl.activeTexture(gl.TEXTURE0);
+    },
     /** The loaded image before any edits (retouch included), 8-bit sRGB, full loaded resolution, top row first. */
     baseImage(): ImageData {
       if (!lin) throw new Error('nothing loaded');
@@ -149,7 +171,8 @@ export function createPipeline(canvas: HTMLCanvasElement) {
     render(v: Values, asShot = 5500, fullFrame = false) {
       if (!lin) return;
       const cr = fullFrame ? [0, 0, 1, 1] : [v.cropX, v.cropY, v.cropW, v.cropH];
-      const cw = Math.max(1, Math.round(cr[2] * srcW)), ch = Math.max(1, Math.round(cr[3] * srcH));
+      const turned = orient(v.angle ?? 0).quarter % 2 === 1, fw = turned ? srcH : srcW, fh = turned ? srcW : srcH;
+      const cw = Math.max(1, Math.round(cr[2] * fw)), ch = Math.max(1, Math.round(cr[3] * fh));
       if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
       gl.useProgram(dev);
       gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, lut);
@@ -159,7 +182,14 @@ export function createPipeline(canvas: HTMLCanvasElement) {
       for (const [k, x] of Object.entries(uniforms(v, asShot))) gl.uniform1f(loc('u_' + k), x);
       for (const [k, x] of Object.entries(lods)) gl.uniform1f(loc(k), x);
       gl.uniform1i(loc('isRaw'), +isRaw);
-      const a = (v.angle * Math.PI) / 180, asp = srcW / srcH;
+      gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, maskTex); gl.activeTexture(gl.TEXTURE0);
+      gl.uniform1fv(loc('mkA[0]'), maskUniforms(v));
+      gl.uniform4fv(loc('mkInv'), Array.from({ length: MASKS }, (_, i) => (v[maskKey(i, 'inv')] ? 1 : 0)));
+      gl.uniform4fv(loc('mkOn'), maskOn);
+      // Feather 100 ≈ 1/16 of the frame's long side (mask is ≤2048 px, so ~5 levels down)
+      gl.uniform4fv(loc('mkLod'), Array.from({ length: MASKS }, (_, i) => ((v[maskKey(i, 'feather')] ?? 0) / 100) * Math.max(0, maskLevels - 4)));
+      const { quarter, rest } = orient(v.angle ?? 0), a = (rest * Math.PI) / 180, asp = quarter % 2 ? srcH / srcW : srcW / srcH;
+      gl.uniform1i(loc('quarter'), quarter); gl.uniform2f(loc('flip'), v.flipH ? 1 : 0, v.flipV ? 1 : 0);
       gl.uniform4f(loc('crop'), cr[0], cr[1], cr[2], cr[3]);
       gl.uniform1f(loc('angle'), a); gl.uniform1f(loc('aspect'), asp);
       gl.uniform1f(loc('rotScale'), Math.cos(Math.abs(a)) + Math.sin(Math.abs(a)) * Math.max(asp, 1 / asp));

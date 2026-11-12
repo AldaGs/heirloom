@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Link } from './p2p.ts';
+import type { Summary } from './sync-run.ts';
 import { BUILTIN_EXPORTS, SHARPEN, encode, outName, type ExportPreset, type Format } from './export.ts';
 import { GROUPS, planSync, type SyncOpts } from './sync.ts';
 import { developFull, developPreview } from './render.ts';
 import { usePref } from './prefs.ts';
 import type { Photo } from './library.ts';
 import type { Values } from './sliders.ts';
-import { AI_MODULES, MODELS, removeAiData, storedAiData, type StoredItem } from './ai.ts';
+import { AI_MODULES, MODELS, modelInstalled, removeAiData, storedAiData, type StoredItem } from './ai.ts';
 
 type Result = { id: string; name: string; ok: boolean; why?: string };
 
@@ -119,7 +121,7 @@ export function SyncDialog({ source, targets, onApply, onClose }: { source: Phot
         try {
           const { v, blob } = await developPreview(t, auto => planSync(source, t, opts, auto).v);
           const url = URL.createObjectURL(blob); urls.push(url);
-          r = { id: t.id, url, v, notes: planSync(source, t, { ...opts, autoExposure: false }).notes.concat(opts.autoExposure ? [`auto exposure ${v.exposure > 0 ? '+' : ''}${v.exposure.toFixed(2)}`] : []) };
+          r = { id: t.id, url, v, notes: planSync(source, t, { ...opts, autoExposure: false }).notes.concat(opts.autoExposure ? [`auto exposure ${v.exposure > 0 ? '+' : ''}${v.exposure.toFixed(3)}`] : []) };
         } catch (e) {
           // Preview failed: still apply if the settings themselves merge fine, but say why there's no preview
           r = { id: t.id, notes: [], err: (e as Error).message };
@@ -174,12 +176,20 @@ export function SyncDialog({ source, targets, onApply, onClose }: { source: Phot
 const mb = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 const label = (url: string) => Object.values(MODELS).find(m => url.endsWith(m.file))?.name ?? (/ort.*\.wasm$/.test(url) ? 'AI runtime (ONNX Runtime)' : url.split('/').pop());
 
-export function SettingsDialog({ ai, setAi, onClose }: { ai: boolean; setAi: (on: boolean) => void; onClose: () => void }) {
+export function SettingsDialog({ ai, setAi, onClose, onDevices }: { ai: boolean; setAi: (on: boolean) => void; onClose: () => void; onDevices: () => void }) {
   const [items, setItems] = useState<StoredItem[] | null>(null);
   const refresh = () => {
     storedAiData().then(setItems).catch(() => setItems([]));
   };
   useEffect(refresh, []);
+  // Which modules have their model files on this server (a deploy may skip models it couldn't fetch)
+  const [installed, setInstalled] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    Promise.all(AI_MODULES.map(async m => {
+      const files = Object.values(MODELS).filter(x => x.module === m.id).map(x => x.file);
+      return [m.id, (await Promise.all(files.map(modelInstalled))).every(Boolean)] as const;
+    })).then(r => setInstalled(Object.fromEntries(r)));
+  }, []);
   const remove = async (path?: string) => {
     const what = path ? label(path) : 'all downloaded AI data';
     if (!confirm(`Remove ${what}? It downloads again the next time an AI tool needs it.`)) return;
@@ -197,9 +207,15 @@ export function SettingsDialog({ ai, setAi, onClose }: { ai: boolean; setAi: (on
           <input type="checkbox" role="switch" aria-checked={ai} checked={ai} onChange={e => toggle(e.target.checked)} />
         </label>
         <ul className="ai-mods">
-          {AI_MODULES.map(m => <li key={m.id}><b>{m.name}</b> — {m.what} <span className="muted">· {!ai ? 'off' : m.id === 'remove' ? 'available' : 'not installed yet'}</span></li>)}
+          {AI_MODULES.map(m => <li key={m.id}><b>{m.name}</b> — {m.what} <span className="muted">· {!ai ? 'off' : installed[m.id] === undefined ? 'checking…' : installed[m.id] ? 'available' : 'not installed on this server'}</span></li>)}
         </ul>
         <p className="muted small">This setting is per device.</p>
+        <p className="muted small">Model licenses: {Object.values(MODELS).map(m => <a key={m.file} href={m.file.replace(/\.onnx$/, '.LICENSE.txt')} target="_blank" rel="noreferrer">{m.name} ({m.license})</a>)}</p>
+      </section>
+      <section className="setting">
+        <h4>Devices</h4>
+        <p className="muted small">Sync edits directly with your other devices — no account, no server, end-to-end encrypted.</p>
+        <button className="ghost bordered" onClick={onDevices}>Sync with another device…</button>
       </section>
       <section className="setting">
         <h4>Downloaded AI data</h4>
@@ -211,5 +227,110 @@ export function SettingsDialog({ ai, setAi, onClose }: { ai: boolean; setAi: (on
         </>}
       </section>
     </Modal>
+  );
+}
+
+// ---------------- Device-to-device sync (Phase 8) ----------------
+function QR({ text }: { text: string }) {
+  const [src, setSrc] = useState('');
+  useEffect(() => { import('qrcode').then(q => q.toDataURL(text, { errorCorrectionLevel: 'L', margin: 1, width: 320 })).then(setSrc).catch(() => setSrc('')); }, [text]);
+  return src ? <img className="qr" src={src} alt="Pairing QR code" width={240} height={240} /> : null;
+}
+
+/** Paste box + optional camera scan (where the browser has BarcodeDetector). */
+function CodeInput({ label, onCode }: { label: string; onCode: (c: string) => void }) {
+  const [val, setVal] = useState(''), [scan, setScan] = useState(false), video = useRef<HTMLVideoElement>(null);
+  const canScan = 'BarcodeDetector' in window && !!navigator.mediaDevices?.getUserMedia;
+  useEffect(() => {
+    if (!scan) return;
+    let stop = false, stream: MediaStream | undefined;
+    (async () => {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      video.current!.srcObject = stream; await video.current!.play();
+      const det = new (window as unknown as { BarcodeDetector: new (o: object) => { detect(v: HTMLVideoElement): Promise<{ rawValue: string }[]> } }).BarcodeDetector({ formats: ['qr_code'] });
+      while (!stop) {
+        const r = await det.detect(video.current!).catch(() => []);
+        const hit = r.find(x => /^HL[OA]\./.test(x.rawValue));
+        if (hit) { setScan(false); onCode(hit.rawValue); break; }
+        await new Promise(res => setTimeout(res, 250));
+      }
+    })().catch(() => setScan(false));
+    return () => { stop = true; stream?.getTracks().forEach(t => t.stop()); };
+  }, [scan]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="code-in">
+      <label>{label}<textarea rows={3} value={val} onChange={e => setVal(e.target.value)} placeholder="HLO.… or HLA.…" spellCheck={false} /></label>
+      <div className="row">
+        <button className="primary" disabled={!val.trim()} onClick={() => onCode(val)}>Continue</button>
+        {canScan && <button className="ghost bordered" onClick={() => setScan(s => !s)}>{scan ? 'Stop camera' : 'Scan QR'}</button>}
+      </div>
+      {scan && <video ref={video} className="qr-video" muted playsInline />}
+    </div>
+  );
+}
+
+type Stage = { s: 'choose' } | { s: 'busy'; msg: string } | { s: 'host'; code: string; finish: (a: string) => Promise<Link> }
+  | { s: 'joinCode' } | { s: 'joinWait'; code: string } | { s: 'done'; sum: Summary } | { s: 'error'; msg: string };
+
+export function DevicesDialog({ photos, commit, onClose }: { photos: () => Photo[]; commit: (ps: Photo[]) => void; onClose: () => void }) {
+  const [st, setSt] = useState<Stage>({ s: 'choose' });
+  const conns = useRef<{ close(): void }[]>([]);
+  useEffect(() => () => conns.current.forEach(c => c.close()), []);
+  const fail = (e: unknown) => setSt({ s: 'error', msg: (e as Error).message || String(e) });
+  const run = async (link: Link) => {
+    conns.current.push(link);
+    setSt({ s: 'busy', msg: 'Connected. Syncing…' });
+    const { runSync } = await import('./sync-run.ts');
+    const sum = await runSync(link, photos, commit, msg => setSt({ s: 'busy', msg }));
+    setSt({ s: 'done', sum }); setTimeout(() => link.close(), 1500);
+  };
+  const start = async () => {
+    setSt({ s: 'busy', msg: 'Preparing a pairing code…' });
+    try { const { host } = await import('./p2p.ts'); const h = await host(); conns.current.push(h.pc); setSt({ s: 'host', code: h.code, finish: h.finish }); } catch (e) { fail(e); }
+  };
+  const joinWith = async (offer: string) => {
+    setSt({ s: 'busy', msg: 'Reading code…' });
+    try {
+      const { join } = await import('./p2p.ts'); const j = await join(offer); conns.current.push(j.pc);
+      setSt({ s: 'joinWait', code: j.code });
+      run(await j.link).catch(fail);
+    } catch (e) { fail(e); }
+  };
+  return (
+    <Modal title="Sync with another device" onClose={onClose} foot={<><span className="grow" /><button className="ghost bordered" onClick={onClose}>{st.s === 'done' ? 'Close' : 'Cancel'}</button></>}>
+      <div className="devices">
+        {st.s === 'choose' && <>
+          <p className="muted">Syncs edits, history, masks, ratings, labels and albums for photos both devices have (matched by file name, date and size). Photos themselves are never sent. The link is direct and end-to-end encrypted; both devices must be open.</p>
+          <div className="row"><button className="primary" onClick={start}>Start pairing here</button><button className="ghost bordered" onClick={() => setSt({ s: 'joinCode' })}>I have a code</button></div>
+        </>}
+        {st.s === 'busy' && <p role="status">{st.msg}</p>}
+        {st.s === 'host' && <>
+          <p><b>1.</b> On the other device: Settings → Sync with another device → <b>I have a code</b>, then scan or paste this:</p>
+          <QR text={st.code} /><CopyCode code={st.code} />
+          <p><b>2.</b> It shows a reply code. Enter it here:</p>
+          <CodeInput label="Reply code" onCode={async a => { setSt({ s: 'busy', msg: 'Connecting…' }); try { await run(await st.finish(a)); } catch (e) { fail(e); } }} />
+        </>}
+        {st.s === 'joinCode' && <CodeInput label="Code from the other device" onCode={joinWith} />}
+        {st.s === 'joinWait' && <>
+          <p>Scan or paste this reply code on the device that started pairing:</p>
+          <QR text={st.code} /><CopyCode code={st.code} />
+          <p className="muted small" role="status">Waiting for the other device…</p>
+        </>}
+        {st.s === 'done' && <div className="report" role="status">
+          <p><b>Synced.</b> Received {st.sum.received} change{st.sum.received === 1 ? '' : 's'}, sent {st.sum.sent}.</p>
+          {st.sum.keptOurs > 0 && <p className="muted small">{st.sum.keptOurs} incoming change{st.sum.keptOurs === 1 ? ' was' : 's were'} older than this device's and kept as is.</p>}
+          {(st.sum.onlyHere > 0 || st.sum.onlyThere > 0) && <p className="muted small">Not synced: {st.sum.onlyHere} photo{st.sum.onlyHere === 1 ? '' : 's'} only on this device, {st.sum.onlyThere} only on the other. Import the same files on both to sync their edits.</p>}
+        </div>}
+        {st.s === 'error' && <div className="report"><p className="fails">{st.msg}</p><button className="ghost bordered" onClick={() => setSt({ s: 'choose' })}>Try again</button></div>}
+      </div>
+    </Modal>
+  );
+}
+
+function CopyCode({ code }: { code: string }) {
+  const [ok, setOk] = useState(false);
+  return (
+    <div className="code-out" data-code={code}><code>{code.length > 48 ? code.slice(0, 24) + '…' + code.slice(-16) : code}</code>
+      <button className="ghost bordered" onClick={() => navigator.clipboard.writeText(code).then(() => { setOk(true); setTimeout(() => setOk(false), 1500); })}>{ok ? 'Copied' : 'Copy code'}</button></div>
   );
 }

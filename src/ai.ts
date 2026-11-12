@@ -21,6 +21,9 @@ const models = new Map<string, Promise<ArrayBuffer>>();
 /** Same-origin model files (fetched by `npm run fetch-models`, never from a third party at runtime). */
 export const MODELS = {
   migan: { file: 'models/migan_pipeline_v2.onnx', name: 'MI-GAN 512 (Places2)', license: 'MIT — Picsart AI Research', module: 'remove' },
+  nafnet: { file: 'models/nafnet_sidd_w32.onnx', name: 'NAFNet SIDD width32', license: 'MIT — Megvii Research', module: 'denoise' },
+  samEnc: { file: 'models/mobilesam_encoder.onnx', name: 'MobileSAM encoder', license: 'Apache-2.0 — Chaoning Zhang et al.', module: 'mask' },
+  samDec: { file: 'models/mobilesam_decoder.onnx', name: 'MobileSAM decoder', license: 'Apache-2.0 — Chaoning Zhang et al.', module: 'mask' },
 } as const;
 export type ModelId = keyof typeof MODELS;
 
@@ -64,9 +67,15 @@ export async function removeAiData(path?: string) {
   await c.delete(path);
 }
 
+/** Is this model file on this server? (HEAD only, nothing downloaded; an SPA fallback page doesn't count.) */
+export async function modelInstalled(file: string) {
+  const r = await fetch(file, { method: 'HEAD' }).catch(() => null);
+  return !!r?.ok && !/text\/html/.test(r.headers.get('content-type') ?? '');
+}
+
 /** Modules that will use the gate. Status is shown in Settings so users see exactly what the switch covers. */
 export const AI_MODULES = [
-  { id: 'mask', name: 'Masking', what: 'subject / sky selection' },
+  { id: 'mask', name: 'Select subject', what: 'Masking: click any object or the sky to mask it (gradients and brush work without AI)' },
   { id: 'remove', name: 'Remove', what: 'object & spot removal' },
   { id: 'denoise', name: 'AI Denoise', what: 'noise reduction beyond the Detail panel' },
 ] as const;

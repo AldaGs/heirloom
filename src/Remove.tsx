@@ -1,4 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { Encoder } from './Encoder';
+import type { Slider } from './sliders.ts';
+
+// Tool settings use the same encoder control as every adjustment (drag, fine mode, typed values, double-click reset)
+export const BRUSH_SIZE: Slider = { k: 'brushSize', label: 'Brush size', min: 0.5, max: 20, step: 0.5, def: 3, unit: '%' };
+const STRENGTH: Slider = { k: 'denoiseStrength', label: 'Strength', min: 10, max: 100, step: 1, def: 70, unit: '%' };
 
 /** Brush layer over the Develop canvas (full frame, unrotated). Internal size = the loaded image's pixels. */
 export function RemoveOverlay({ canvas, brushRef, size }: { canvas: HTMLCanvasElement; brushRef: React.MutableRefObject<HTMLCanvasElement | null>; size: number }) {
@@ -11,7 +17,8 @@ export function RemoveOverlay({ canvas, brushRef, size }: { canvas: HTMLCanvasEl
     };
     measure();
     const ro = new ResizeObserver(measure); ro.observe(canvas);
-    return () => ro.disconnect();
+    const st = canvas.closest('.stage'); st?.addEventListener('scroll', measure); // follow the image when zoomed in
+    return () => { ro.disconnect(); st?.removeEventListener('scroll', measure); };
   }, [canvas]);
   useEffect(() => {
     const b = brushRef.current!;
@@ -48,13 +55,33 @@ export function RemovePanel({ size, setSize, busy, msg, hasRetouch, onRemove, on
     <section className="adjust remove-panel">
       <div className="sec-head"><h3>Remove</h3><button className="primary" onClick={done}>Done</button></div>
       <p className="muted small">Paint over the object or spot, then Remove. On-device AI (MI-GAN). For large areas, use several small strokes.</p>
-      <label className="brush-size">Brush <input type="range" min={0.5} max={15} step={0.5} value={size} onChange={e => setSize(+e.target.value)} /> <span>{size}%</span></label>
+      <Encoder s={BRUSH_SIZE} value={size} onChange={setSize} onCommit={() => {}} idPrefix="remove" />
       <div className="row">
         <button className="primary" onClick={onRemove} disabled={busy}>{busy ? 'Removing…' : 'Remove'}</button>
         <button className="ghost bordered" onClick={onClear} disabled={busy}>Clear brush</button>
       </div>
       {msg && <p className="small" role="status">{msg}</p>}
       {hasRetouch && <button className="ghost bordered" onClick={onRevert} disabled={busy}>Revert all removals</button>}
+    </section>
+  );
+}
+
+export function DenoisePanel({ strength, setStrength, progress, msg, pixels, onRun, onCancel, done }: {
+  strength: number; setStrength: (n: number) => void; progress: { done: number; total: number } | null; msg: string; pixels: number;
+  onRun: () => void; onCancel: () => void; done: () => void;
+}) {
+  const busy = !!progress;
+  return (
+    <section className="adjust remove-panel">
+      <div className="sec-head"><h3>AI Denoise</h3><button className="primary" onClick={done} disabled={busy}>Done</button></div>
+      <p className="muted small">Removes sensor noise from the whole photo, on this device (NAFNet). Runs on the unedited image, so your sliders still apply on top. {(pixels / 1e6).toFixed(0)} MP: seconds with WebGPU, minutes on CPU.</p>
+      <Encoder s={STRENGTH} value={strength} onChange={setStrength} onCommit={() => {}} idPrefix="denoise" />
+      <div className="row">
+        {busy ? <button className="ghost bordered" onClick={onCancel}>Cancel</button> : <button className="primary" onClick={onRun}>Denoise</button>}
+      </div>
+      {progress && progress.total > 1 && <progress max={progress.total} value={progress.done} aria-label="Denoise progress" />}
+      {progress && progress.total > 1 && <p className="small muted">Tile {progress.done} of {progress.total}</p>}
+      {msg && <p className="small" role="status">{msg}</p>}
     </section>
   );
 }

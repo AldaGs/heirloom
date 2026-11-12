@@ -2,22 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Encoder } from './Encoder.tsx';
 import type { Slider, Values } from './sliders.ts';
 
-export type Rect = { cropX: number; cropY: number; cropW: number; cropH: number };
-export const ASPECTS: [string, number | 'orig' | null][] = [['Free', null], ['Original', 'orig'], ['1:1', 1], ['4:5', 4 / 5], ['3:2', 3 / 2], ['16:9', 16 / 9]];
-
-const clamp = (x: number, a: number, b: number) => Math.min(b, Math.max(a, x));
-const MIN = 0.05;
-
-/**
- * Fit a rect to a pixel aspect ratio r (w/h) inside the frame. A = frame pixel aspect.
- * In fractions: (w·A)/h = r → h = w·A/r. Keeps the centre, shrinks to fit.
- */
-export function fitAspect(c: Rect, r: number, A: number): Rect {
-  let w = c.cropW, h = (w * A) / r;
-  if (h > c.cropH) { h = c.cropH; w = (h * r) / A; }
-  const cx = c.cropX + c.cropW / 2, cy = c.cropY + c.cropH / 2;
-  return { cropX: clamp(cx - w / 2, 0, 1 - w), cropY: clamp(cy - h / 2, 0, 1 - h), cropW: w, cropH: h };
-}
+import { ASPECTS, clamp, MIN, type Rect } from './crop-geom.ts';
+export { ASPECTS, fitAspect, turnRect, flipRect, type Rect } from './crop-geom.ts';
 
 type Handle = 'move' | 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se';
 
@@ -85,10 +71,12 @@ export function CropOverlay({ canvas, rect, ratio, frameAspect, onChange, onComm
 }
 
 /** Right-hand panel while cropping: aspect, straighten, reset, done. */
-export function CropPanel({ v, aspect, setAspect, angle, setAngle, commit, reset, done }: {
+export function CropPanel({ v, aspect, setAspect, angle, setAngle, commit, reset, done, turn, flip }: {
   v: Values; aspect: string; setAspect: (a: string) => void; angle: Slider;
   setAngle: (x: number) => void; commit: () => void; reset: () => void; done: () => void;
+  turn: (dir: 1 | -1) => void; flip: (axis: 'h' | 'v') => void;
 }) {
+  const I = ({ d }: { d: string }) => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>;
   return (
     <section className="adjust crop-panel">
       <div className="sec-head"><h3>Crop &amp; straighten</h3><button className="ghost" onClick={reset}>Reset</button><button className="primary" onClick={done}>Done</button></div>
@@ -96,8 +84,15 @@ export function CropPanel({ v, aspect, setAspect, angle, setAngle, commit, reset
       <div className="aspects">
         {ASPECTS.map(([name]) => <button key={name} className={'pill' + (aspect === name ? ' on' : '')} onClick={() => setAspect(name)}>{name}</button>)}
       </div>
-      <h4>Straighten</h4>
+      <h4>Rotate &amp; flip</h4>
+      <div className="aspects">
+        <button className="pill" onClick={() => turn(-1)} title="Rotate 90° left ([)" aria-label="Rotate 90° left"><I d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5" /></button>
+        <button className="pill" onClick={() => turn(1)} title="Rotate 90° right (])" aria-label="Rotate 90° right"><I d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5" /></button>
+        <button className={'pill' + (v.flipH ? ' on' : '')} aria-pressed={!!v.flipH} onClick={() => flip('h')} title="Flip horizontal" aria-label="Flip horizontal"><I d="M12 3v18M8 7l-5 5 5 5M16 7l5 5-5 5" /></button>
+        <button className={'pill' + (v.flipV ? ' on' : '')} aria-pressed={!!v.flipV} onClick={() => flip('v')} title="Flip vertical" aria-label="Flip vertical"><I d="M3 12h18M7 8l5-5 5 5M7 16l5 5 5-5" /></button>
+      </div>
       <Encoder s={angle} value={v.angle} onChange={setAngle} onCommit={commit} />
+      <p className="muted small">Any angle from −180° to 180°; past ±45° the frame turns with it.</p>
       <p className="muted small">Drag the box to move it, corners and edges to resize. Enter or Done to finish.</p>
     </section>
   );
