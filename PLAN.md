@@ -69,7 +69,11 @@ Tone curve (parametric + point) → Color Mixer (HSL) → Color Grading → Deta
 ## Phase 8 — Optional
 - ✅ Whole-library export/import: Library → Back up edits / Restore edits… (one JSON: every sidecar + albums, ratings, flags, full history; restore matches by file name + dimensions and lists what didn't match).
 - ✅ Global AI switch (Settings, gear in top bar / mobile Settings tab): off by default, per device. `src/ai.ts` `loadModel()` is the only path to a model: refuses while off, same-origin only, drops cached models when turned off. Masking/Remove tabs are hidden while off (resolves open decision 3).
-- Next: the AI modules themselves (masking, remove, denoise) behind `loadModel`; E2E sync. Tauri/Capacitor shells skipped for now.
+- ✅ AI model licenses verified (upstream LICENSE files): MI-GAN code + weights MIT, MobileSAM Apache-2.0, BiRefNet MIT, NAFNet MIT (SIDD dataset MIT), LaMa Apache-2.0. Open legal question: MI-GAN/LaMa were trained on Places2, which its site frames as research/education use — get a legal read before a commercial launch.
+- ✅ AI Remove (MI-GAN pipeline ONNX, ONNX Runtime Web: WebGPU → WASM, runtime bundled same-origin and lazy-loaded). Brush on the unrotated full frame → model fills from the unedited image → result kept as a per-photo retouch layer (PNG, IndexedDB) composited in linear light before all edits; export includes it. `npm run fetch-models` downloads the model into public/models (gitignored); pin its sha256 after the first download.
+- ✅ Settings → Downloaded AI data: per-item sizes, remove one or all (Cache Storage `heirloom-ai`, separate from the app cache), works while AI is off.
+- Limits: retouch layer isn't in undo history (use "Revert all removals") nor in sidecars/library backup yet.
+- Next: MobileSAM masking (needs local-adjustment design in the pipeline), NAFNet denoise; E2E sync. Tauri/Capacitor shells skipped for now.
 E2E-encrypted sync (CRDT edit log), opt-in on-device AI modules (masking, denoise, remove) with a global off switch, Tauri/Capacitor shells (memory-card eject, haptics on iOS), whole-library export/import.
 
 ---

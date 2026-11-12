@@ -5,7 +5,7 @@ import { developFull, developPreview } from './render.ts';
 import { usePref } from './prefs.ts';
 import type { Photo } from './library.ts';
 import type { Values } from './sliders.ts';
-import { AI_MODULES } from './ai.ts';
+import { AI_MODULES, MODELS, removeAiData, storedAiData, type StoredItem } from './ai.ts';
 
 type Result = { id: string; name: string; ok: boolean; why?: string };
 
@@ -170,19 +170,45 @@ export function SyncDialog({ source, targets, onApply, onClose }: { source: Phot
   );
 }
 
-// ---------------- Settings (Phase 8: global AI switch) ----------------
+// ---------------- Settings (Phase 8: global AI switch + downloaded AI data) ----------------
+const mb = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+const label = (url: string) => Object.values(MODELS).find(m => url.endsWith(m.file))?.name ?? (/ort.*\.wasm$/.test(url) ? 'AI runtime (ONNX Runtime)' : url.split('/').pop());
+
 export function SettingsDialog({ ai, setAi, onClose }: { ai: boolean; setAi: (on: boolean) => void; onClose: () => void }) {
+  const [items, setItems] = useState<StoredItem[] | null>(null);
+  const refresh = () => {
+    storedAiData().then(setItems).catch(() => setItems([]));
+  };
+  useEffect(refresh, []);
+  const remove = async (path?: string) => {
+    const what = path ? label(path) : 'all downloaded AI data';
+    if (!confirm(`Remove ${what}? It downloads again the next time an AI tool needs it.`)) return;
+    await removeAiData(path);
+    (await import('./remove.ts')).unloadRemove();
+    refresh();
+  };
+  const total = items?.reduce((n, i) => n + i.bytes, 0) ?? 0;
+  const toggle = async (on: boolean) => { setAi(on); if (!on) (await import('./remove.ts')).unloadRemove(); };
   return (
     <Modal title="Settings" onClose={onClose} foot={<><span className="grow" /><button className="primary" onClick={onClose}>Done</button></>}>
       <section className="setting">
         <label className="switch-row">
           <span><b>AI features</b><br /><span className="muted">Off by default. When off, no AI model is downloaded or run, and AI tools are hidden. When on, models run on this device only — photos never leave it.</span></span>
-          <input type="checkbox" role="switch" aria-checked={ai} checked={ai} onChange={e => setAi(e.target.checked)} />
+          <input type="checkbox" role="switch" aria-checked={ai} checked={ai} onChange={e => toggle(e.target.checked)} />
         </label>
         <ul className="ai-mods">
-          {AI_MODULES.map(m => <li key={m.id}><b>{m.name}</b> — {m.what} <span className="muted">· {ai ? 'not installed yet' : 'off'}</span></li>)}
+          {AI_MODULES.map(m => <li key={m.id}><b>{m.name}</b> — {m.what} <span className="muted">· {!ai ? 'off' : m.id === 'remove' ? 'available' : 'not installed yet'}</span></li>)}
         </ul>
         <p className="muted small">This setting is per device.</p>
+      </section>
+      <section className="setting">
+        <h4>Downloaded AI data</h4>
+        {items === null ? <p className="muted small">Checking…</p> : !items.length ? <p className="muted small">Nothing downloaded.</p> : <>
+          <ul className="ai-data">
+            {items.map(i => <li key={i.url}><span>{label(i.url)}</span><span className="muted">{mb(i.bytes)}</span><button className="ghost bordered" onClick={() => remove(i.url)}>Remove</button></li>)}
+          </ul>
+          <div className="row"><span className="muted">Total {mb(total)}</span><span className="grow" /><button className="ghost bordered danger" onClick={() => remove()}>Remove all AI data</button></div>
+        </>}
       </section>
     </Modal>
   );

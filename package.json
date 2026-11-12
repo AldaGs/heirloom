@@ -4,8 +4,9 @@
   "description": "",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && node src/history.test.ts && node src/noise.test.ts && node src/batch.test.ts && node src/ai.test.ts && vite build",
-    "preview": "vite preview"
+    "build": "tsc --noEmit && node src/history.test.ts && node src/noise.test.ts && node src/batch.test.ts && node src/ai.test.ts && node src/remove.test.ts && vite build",
+    "preview": "vite preview",
+    "fetch-models": "node scripts/fetch-models.mjs"
   },
   "keywords": [],
   "author": "",
@@ -14,6 +15,7 @@
   "dependencies": {
     "heic-to": "^1.6.7",
     "libraw-wasm": "^1.6.0",
+    "onnxruntime-web": "^1.31.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

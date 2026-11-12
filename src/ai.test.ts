@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 const store = new Map<string, string>();
 (globalThis as any).localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) };
 (globalThis as any).location = { origin: 'https://app.test' };
-let fetched = 0; (globalThis as any).fetch = async () => { fetched++; return { ok: true, arrayBuffer: async () => new ArrayBuffer(4) }; };
+let fetched = 0; (globalThis as any).fetch = async () => { fetched++; return { ok: true, clone() { return this; }, arrayBuffer: async () => new ArrayBuffer(4) }; };
 const { aiEnabled, setAiEnabled, loadModel, onAiChange } = await import('./ai.ts');
 
 assert.equal(aiEnabled(), false, 'off by default');

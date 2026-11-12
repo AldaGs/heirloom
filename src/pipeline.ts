@@ -26,6 +26,18 @@ precision highp float; precision highp usampler2D;
 uniform usampler2D src; in vec2 uv; out vec4 o;
 void main(){ ivec2 s = textureSize(src, 0); o = vec4(vec3(texelFetch(src, ivec2(uv * vec2(s)), 0).rgb) / 65535., 1); }`;
 
+// Retouch layer (AI Remove): sRGB-encoded patch, alpha = where it replaces the source. Blended over the linear texture.
+const PREP_PATCH = `#version 300 es
+precision highp float;
+uniform sampler2D src; in vec2 uv; out vec4 o;
+void main(){ vec4 t = texture(src, uv); vec3 c = t.rgb; o = vec4(mix(c/12.92, pow((c+.055)/1.055, vec3(2.4)), step(.04045, c)), t.a); }`;
+
+// Read-back of the unedited linear image as 8-bit sRGB encoding (exact inverse of the decode above), for AI input.
+const ENCODE = `#version 300 es
+precision highp float;
+uniform sampler2D src; in vec2 uv; out vec4 o;
+void main(){ vec3 c = clamp(textureLod(src, uv, 0.).rgb, 0., 1.); o = vec4(mix(c*12.92, 1.055*pow(c, vec3(1./2.4))-.055, step(.0031308, c)), 1); }`;
+
 export type Source = { kind: 'bitmap'; bmp: ImageBitmap } | { kind: 'raw'; w: number; h: number; data: Uint16Array };
 
 export function createPipeline(canvas: HTMLCanvasElement) {
@@ -43,7 +55,7 @@ export function createPipeline(canvas: HTMLCanvasElement) {
     gl.bindAttribLocation(p, 0, 'p'); gl.linkProgram(p);
     return p;
   };
-  const prepSrgb = program(PREP_SRGB, VERT_PREP), prepRaw = program(PREP_RAW, VERT_PREP), dev = program(DEVELOP);
+  const prepSrgb = program(PREP_SRGB, VERT_PREP), prepRaw = program(PREP_RAW, VERT_PREP), prepPatch = program(PREP_PATCH, VERT_PREP), encode = program(ENCODE, VERT_PREP), dev = program(DEVELOP);
   const locs = new Map<string, WebGLUniformLocation | null>();
   const loc = (n: string) => { if (!locs.has(n)) locs.set(n, gl.getUniformLocation(dev, n)); return locs.get(n)!; };
   gl.useProgram(dev); gl.uniform1i(loc('L'), 0); gl.uniform1i(loc('LUT'), 1);
@@ -72,7 +84,8 @@ export function createPipeline(canvas: HTMLCanvasElement) {
   };
 
   return {
-    async load(s: Source) {
+    /** patch: optional retouch layer (same aspect as the source), composited in linear light. */
+    async load(s: Source, patch?: ImageBitmap) {
       // Upload the source
       const src = tex(gl.NEAREST);
       let w: number, h: number;
@@ -101,14 +114,36 @@ export function createPipeline(canvas: HTMLCanvasElement) {
       gl.useProgram(s.kind === 'raw' ? prepRaw : prepSrgb);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, src);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.deleteTexture(src);
+      if (patch) {
+        const pt = tex(gl.LINEAR);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, patch);
+        gl.useProgram(prepPatch);
+        gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        gl.disable(gl.BLEND); gl.deleteTexture(pt);
+      }
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.bindTexture(gl.TEXTURE_2D, lin); gl.generateMipmap(gl.TEXTURE_2D);
 
       // Blur radii scale with resolution (~4 px / ~60 px / ~250 px at 6000 px wide)
       const base = Math.max(0, Math.log2(Math.max(w, h) / 1500));
       lods = { lodTex: base + 1, lodClar: base + 4, lodHaze: base + 6, lodSharp: Math.max(0.5, base - 0.5) };
       canvas.width = srcW = w; canvas.height = srcH = h; isRaw = s.kind === 'raw';
+    },
+    /** The loaded image before any edits (retouch included), 8-bit sRGB, full loaded resolution, top row first. */
+    baseImage(): ImageData {
+      if (!lin) throw new Error('nothing loaded');
+      const t = tex(gl.NEAREST); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, srcW, srcH);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+      gl.viewport(0, 0, srcW, srcH);
+      gl.useProgram(encode); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, lin);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      const px = new Uint8ClampedArray(srcW * srcH * 4);
+      gl.readPixels(0, 0, srcW, srcH, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.deleteTexture(t);
+      return new ImageData(px, srcW, srcH);
     },
     /** fullFrame: ignore the crop (used while the crop tool is open). */
     render(v: Values, asShot = 5500, fullFrame = false) {

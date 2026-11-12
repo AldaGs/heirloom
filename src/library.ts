@@ -10,6 +10,7 @@ export type Photo = {
   v: Values; hist: Step[]; hi: number; rating: number; flag: boolean; reject?: boolean; label: number;
   album?: string; // app-side album; '' / undefined = unfiled
   thumb?: Blob;   // ~480 px, grid + filmstrip
+  retouch?: Blob; // AI Remove layer: PNG at the loaded size, alpha = replaced pixels
   preview?: Blob; // ~2048 px, Cull view (FIXER_IMPROVEMENTS §2)
   url?: string; // runtime-only object URL for the thumbnail
 };

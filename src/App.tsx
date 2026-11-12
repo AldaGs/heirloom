@@ -17,6 +17,7 @@ import { ExportDialog, SettingsDialog, SyncDialog } from './Batch.tsx';
 import { aiEnabled, onAiChange, setAiEnabled } from './ai.ts';
 import { developPreview } from './render.ts';
 import type { Values } from './sliders.ts';
+import { RemoveOverlay, RemovePanel } from './Remove.tsx';
 import { NoiseField, ProceduralImageLoader } from './ProceduralImageLoader.tsx';
 
 type Zoom = 'fit' | 1 | 2;
@@ -34,7 +35,10 @@ export function App() {
   const mobile = useMedia('(max-width: 700px)');
   const [focus, setFocus] = useState(false);            // Focus mode: photo + one floating encoder
   const [lastTool, setLastTool] = usePref('lastTool', 'exposure'); // remembered per device
-  const [tool, setTool] = usePref<'edit' | 'presets' | 'crop' | 'info'>('tool', 'edit');
+  const [tool, setTool] = usePref<'edit' | 'presets' | 'crop' | 'info' | 'remove'>('tool', 'edit');
+  const [brush, setBrush] = usePref('removeBrush', 3);
+  const brushRef = useRef<HTMLCanvasElement | null>(null);
+  const [rmBusy, setRmBusy] = useState(false), [rmMsg, setRmMsg] = useState('');
   const [aspect, setAspectName] = usePref('cropAspect', 'Free');
   const miniHist = useRef<HTMLCanvasElement>(null);
   const cropping = mode === 'develop' && tool === 'crop';
@@ -53,6 +57,7 @@ export function App() {
   const [dialog, setDialog] = useState<{ kind: 'export' | 'sync' | 'settings'; ids: string[] } | null>(null);
   const [ai, setAi] = useState(aiEnabled);
   useEffect(() => onAiChange(setAi), []);
+  const removing = mode === 'develop' && tool === 'remove' && ai;
   const [toast, setToast] = useState<{ msg: string; fails: string[] } | null>(null);
   const [importPreset, setImportPreset] = usePref('importPreset', 'Original');
   const [importAuto, setImportAuto] = usePref('importAuto', false);
@@ -169,8 +174,10 @@ export function App() {
     setBusy(cur.raw ? 'Decoding RAW…' : 'Loading…');
     (async () => {
       const file = await fileOf(cur).catch(() => { throw new Error('reconnect its folder first (button in the top bar).'); });
-      if (cur.raw) { const r = await decodeRaw(file); if (live) await pipe.current!.load({ kind: 'raw', ...r }); }
-      else { const bmp = await decodeBitmap(file, cur.name); if (live) await pipe.current!.load({ kind: 'bitmap', bmp }); bmp.close(); }
+      const patch = cur.retouch ? await createImageBitmap(cur.retouch) : undefined;
+      if (cur.raw) { const r = await decodeRaw(file); if (live) await pipe.current!.load({ kind: 'raw', ...r }, patch); }
+      else { const bmp = await decodeBitmap(file, cur.name); if (live) await pipe.current!.load({ kind: 'bitmap', bmp }, patch); bmp.close(); }
+      patch?.close();
       if (live) { setLoadedId(cur.id); setZoom('fit'); }
     })().catch(e => alert(`Couldn't decode ${cur.name}: ${e.message}`)).finally(() => setBusy(''));
     return () => { live = false; };
@@ -181,7 +188,8 @@ export function App() {
     if (!cur || loadedId !== cur.id || !view.current) return;
     {
       const geom = Object.fromEntries(GEOMETRY.map(k => [k, cur.v[k]]));
-      pipe.current!.render(bypass ? { ...base(cur), ...geom } : cur.v, cur.asShot, cropping);
+      const v = bypass ? { ...base(cur), ...geom } : cur.v;
+      pipe.current!.render(removing ? { ...v, angle: 0 } : v, cur.asShot, cropping || removing); // Remove paints on the unrotated full frame
       const h = histogram(view.current!);
       drawHist(histC.current!, h);
       if (miniHist.current) drawHist(miniHist.current, h);
@@ -191,7 +199,7 @@ export function App() {
       g.drawImage(view.current!, (n.width - view.current!.width * k) / 2, (n.height - view.current!.height * k) / 2, view.current!.width * k, view.current!.height * k);
       setFrame(f => f + 1);
     }
-  }, [cur?.v, bypass, loadedId, cropping]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cur?.v, bypass, loadedId, cropping, removing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onScroll = () => {
     const s = stage.current!;
@@ -223,6 +231,28 @@ export function App() {
     pipe.current!.render(base(cur), cur.asShot);
     const exposure = Math.round(autoExposure(histogram(view.current)) / 0.05) * 0.05;
     update(p => push(p, { ...p.v, exposure: +exposure.toFixed(2) }, 'Auto'));
+  };
+  // AI Remove: model sees the unedited image (earlier removals included); result goes into the photo's retouch layer
+  const runRemove = async () => {
+    if (!cur || !pipe.current || !brushRef.current) return;
+    setRmBusy(true); setRmMsg('Removing… (first run downloads the model)');
+    try {
+      const { removeArea } = await import('./remove.ts');
+      const baseImg = pipe.current.baseImage(), b = brushRef.current;
+      const brushImg = b.getContext('2d')!.getImageData(0, 0, b.width, b.height);
+      let prev: ImageData | undefined;
+      if (cur.retouch) {
+        const bmp = await createImageBitmap(cur.retouch, { premultiplyAlpha: 'none' });
+        const c = new OffscreenCanvas(baseImg.width, baseImg.height), g = c.getContext('2d')!;
+        g.drawImage(bmp, 0, 0, c.width, c.height); bmp.close(); prev = g.getImageData(0, 0, c.width, c.height);
+      }
+      const layer = await removeArea(baseImg, brushImg, prev);
+      const c = new OffscreenCanvas(layer.width, layer.height); c.getContext('2d')!.putImageData(layer, 0, 0);
+      const retouch = await c.convertToBlob({ type: 'image/png' });
+      b.getContext('2d')!.clearRect(0, 0, b.width, b.height);
+      update(p => ({ ...p, retouch })); setLoadedId(null); setRmMsg('Removed.');
+    } catch (e) { setRmMsg(`Couldn't remove: ${(e as Error).message}`); }
+    setRmBusy(false);
   };
   const exportJpeg = () => { if (cur) setDialog({ kind: 'export', ids: [cur.id] }); };
   const applySync = (vs: Map<string, Values>, label: string) => setPhotos(ps => ps.map(p => (vs.has(p.id) ? push(p, vs.get(p.id)!, label) : p)));
@@ -360,6 +390,7 @@ export function App() {
           <NoiseField active={loading} className="aurora" />
           <span className="shimmer-text" role="status">{busy || 'Developing…'}</span>
         </div>
+        {removing && cur && view.current && loadedId === cur.id && <RemoveOverlay canvas={view.current} brushRef={brushRef} size={brush} />}
         {cropping && cur && view.current && loadedId === cur.id && (
           <CropOverlay canvas={view.current} rect={cur.v as Rect} ratio={ratioOf(aspect)} frameAspect={cur.w / cur.h} onChange={setRect} onCommit={commitCrop} />
         )}
@@ -410,11 +441,15 @@ export function App() {
         <div className="tools" role="tablist">
           <ToolTab id="edit" tool={tool} setTool={setTool} label="Edit" d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4" />
           <ToolTab id="crop" tool={tool} setTool={setTool} label="Crop & straighten (R)" d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14" />
-          {ai && <button role="tab" aria-selected="false" disabled aria-label="Remove / heal" title="AI module not installed yet"><Icon d="m3 21 12-12M15 4V2M15 10V8M19 6h2M11 6h2M17.5 3.5 19 2M17.5 8.5 19 10" /></button>}
+          {ai && <ToolTab id="remove" tool={tool} setTool={setTool} label="Remove (AI, on-device)" d="m3 21 12-12M15 4V2M15 10V8M19 6h2M11 6h2M17.5 3.5 19 2M17.5 8.5 19 10" />}
           {ai && <button role="tab" aria-selected="false" disabled aria-label="Masking" title="AI module not installed yet"><Icon d="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" /></button>}
           <ToolTab id="info" tool={tool} setTool={setTool} label="Info (EXIF)" d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" />
         </div>
-        {cropping && cur ? (
+        {removing && cur ? (
+          <RemovePanel size={brush} setSize={setBrush} busy={rmBusy} msg={rmMsg} hasRetouch={!!cur.retouch} done={() => setTool('edit')}
+            onRemove={runRemove} onClear={() => { const b = brushRef.current; b?.getContext('2d')!.clearRect(0, 0, b.width, b.height); }}
+            onRevert={() => { if (confirm('Revert every removal on this photo?')) { update(p => ({ ...p, retouch: undefined })); setLoadedId(null); setRmMsg(''); } }} />
+        ) : cropping && cur ? (
           <CropPanel v={cur.v} aspect={aspect} setAspect={setAspect} angle={byKey.angle} setAngle={x => setVal('angle', x)} commit={commit}
             reset={() => resetKeys(GEOMETRY, 'Reset crop')} done={() => setTool('edit')} />
         ) : tool === 'info' && !mobile ? (
@@ -439,7 +474,7 @@ export function App() {
           <MNav icon="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14" label="Crop" on={tool === 'crop'} onClick={() => setTool('crop')} />
           <MNav icon="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M16 4v4M10 10v4M18 16v4" label="Edit" on={tool === 'edit' || tool === 'info'} onClick={() => setTool('edit')} />
           {ai && <MNav icon="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" label="Masking" disabled />}
-          {ai && <MNav icon="m3 21 12-12M15 4V2M15 10V8M19 6h2M11 6h2" label="Remove" disabled />}
+          {ai && <MNav icon="m3 21 12-12M15 4V2M15 10V8M19 6h2M11 6h2" label="Remove" on={tool === 'remove'} onClick={() => setTool('remove')} />}
         </nav>
       )}
       {mobile && mode !== 'develop' && (
@@ -473,7 +508,7 @@ export function App() {
   );
 }
 
-function ToolTab({ id, tool, setTool, label, d }: { id: 'edit' | 'crop' | 'info'; tool: string; setTool: (t: 'edit' | 'crop' | 'info') => void; label: string; d: string }) {
+function ToolTab({ id, tool, setTool, label, d }: { id: 'edit' | 'crop' | 'info' | 'remove'; tool: string; setTool: (t: 'edit' | 'crop' | 'info' | 'remove') => void; label: string; d: string }) {
   const on = tool === id || (id === 'edit' && tool === 'presets');
   return <button role="tab" aria-selected={on} className={on ? 'on' : ''} aria-label={label} title={label} onClick={() => setTool(id)}><Icon d={d} /></button>;
 }

@@ -29,7 +29,8 @@ async function previewSource(p: Photo): Promise<Source> {
 
 async function run(src: Source, p: Photo, v: Values) {
   const { canvas, pipe } = dev();
-  try { await pipe.load(src); } finally { if (src.kind === 'bitmap') src.bmp.close(); }
+  const patch = p.retouch ? await createImageBitmap(p.retouch) : undefined;
+  try { await pipe.load(src, patch); } finally { patch?.close(); if (src.kind === 'bitmap') src.bmp.close(); }
   pipe.render(v, p.asShot);
   return canvas;
 }
