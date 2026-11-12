@@ -2,7 +2,7 @@ import { createPipeline, histogram, autoExposure, type Source } from './pipeline
 import { decodeRaw } from './raw.ts';
 import { decodeBitmap } from './decode.ts';
 import { base, fileOf, type Photo } from './library.ts';
-import type { Values } from './sliders.ts';
+import { MASKS, type Values } from './sliders.ts';
 
 /**
  * Off-screen developer for batch work (export, sync preview). One hidden WebGL context, reused;
@@ -27,10 +27,20 @@ async function previewSource(p: Photo): Promise<Source> {
   return { kind: 'bitmap', bmp: await createImageBitmap(b) };
 }
 
+/** Decode a photo's mask images (current step) for the GPU. */
+export async function maskData(p: Photo) {
+  return Promise.all(Array.from({ length: MASKS }, async (_, i) => {
+    const b = p.masks?.[i]; if (!b) return undefined;
+    const bmp = await createImageBitmap(b), c = new OffscreenCanvas(bmp.width, bmp.height), g = c.getContext('2d')!;
+    g.drawImage(bmp, 0, 0); bmp.close(); return g.getImageData(0, 0, c.width, c.height);
+  }));
+}
+
 async function run(src: Source, p: Photo, v: Values) {
   const { canvas, pipe } = dev();
   const patch = p.retouch ? await createImageBitmap(p.retouch, { premultiplyAlpha: 'none' }) : undefined;
   try { await pipe.load(src, patch); } finally { patch?.close(); if (src.kind === 'bitmap') src.bmp.close(); }
+  pipe.setMasks(await maskData(p));
   pipe.render(v, p.asShot);
   return canvas;
 }
@@ -45,6 +55,7 @@ export const developPreview = (p: Photo, v: (auto: () => number) => Values) =>
     const src = await previewSource(p);
     const { canvas, pipe } = dev();
     try { await pipe.load(src); } finally { if (src.kind === 'bitmap') src.bmp.close(); }
+    pipe.setMasks(await maskData(p));
     const auto = () => { pipe.render(base(p), p.asShot); return Math.round(autoExposure(histogram(canvas)) / 0.05) * 0.05; };
     const vals = v(auto);
     pipe.render(vals, p.asShot);

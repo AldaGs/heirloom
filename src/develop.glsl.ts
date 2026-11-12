@@ -4,7 +4,8 @@ export const SCALARS = ['temp', 'tint', 'exposure', 'contrast', 'highlights', 's
 
 const DEVELOP = `#version 300 es
 precision highp float;
-uniform sampler2D L, LUT; uniform bool isRaw;
+uniform sampler2D L, LUT, M; uniform bool isRaw;
+uniform float mkA[32]; uniform vec4 mkInv, mkOn; // masks: 4 slots × 8 local adjustments, packed in M's RGBA
 uniform float lodTex, lodClar, lodHaze, lodSharp;
 uniform vec4 crop; uniform float angle, rotScale, aspect; uniform vec2 outSize;
 uniform float ${SCALARS.map(n => 'u_' + n).join(',')};
@@ -39,6 +40,12 @@ void main(){
   vec2 u = mapUV(uv);
   if (any(lessThan(u, vec2(0.))) || any(greaterThan(u, vec2(1.)))) { o = vec4(0,0,0,1); return; }
 
+  // Local adjustments: mask weights (source-frame) × each slot's settings, summed into offsets of the global ones
+  vec4 mw = mix(textureLod(M, u, 0.), 1. - textureLod(M, u, 0.), mkInv) * mkOn;
+  float lE = 0., lT = 0., lTi = 0., lC = 0., lH = 0., lS = 0., lCl = 0., lSa = 0.;
+  for (int i = 0; i < 4; i++) { float w = mw[i]; lE += w*mkA[i*8]; lT += w*mkA[i*8+1]; lTi += w*mkA[i*8+2]; lC += w*mkA[i*8+3];
+    lH += w*mkA[i*8+4]; lS += w*mkA[i*8+5]; lCl += w*mkA[i*8+6]; lSa += w*mkA[i*8+7]; }
+
   // Lateral chromatic aberration: scale red/blue planes around the optical centre
   vec2 dc = u - .5;
   vec3 c = vec3(textureLod(L, .5 + dc * (1. + u_ca * .004), 0.).r, textureLod(L, u, 0.).g, textureLod(L, .5 + dc * (1. - u_ca * .004), 0.).b);
@@ -56,18 +63,19 @@ void main(){
   c *= exp2(clamp(log2(y / ys) * u_sharpen * 1.2, -1., 1.));
 
   // Texture / Clarity: log-luma deviation from blurred versions
-  float ev = exp2(u_exposure);
+  float ev = exp2(u_exposure + lE);
   y = max(luma(c), 1e-5);
   float dT = log2(y / max(luma(textureLod(L, u, lodTex).rgb), 1e-5));
   float dC = log2(y / max(luma(textureLod(L, u, lodClar).rgb), 1e-5));
   float mid = clamp(1. - abs(log2(y * ev) + 2.5) / 4., 0., 1.);
-  c *= exp2(clamp(dT * u_texture * .8 + dC * u_clarity * .6 * mid, -2., 2.));
+  c *= exp2(clamp(dT * u_texture * .8 + dC * (u_clarity + lCl) * .6 * mid, -2., 2.));
 
   // Calibration (primaries hue/sat) + shadow tint, in linear light
   c = max(calib * c, 0.);
   c.g *= 1. - u_shadowTint * .25 * (1. - smoothstep(0., .2, luma(c)));
 
-  c *= vec3(1.+u_temp*.4, 1.-u_tint*.3, 1.-u_temp*.4) * ev;
+  float tp = u_temp + lT, tn = u_tint + lTi;
+  c *= vec3(1.+tp*.4, 1.-tn*.3, 1.-tp*.4) * ev;
 
   vec3 hz = textureLod(L, u, lodHaze).rgb * ev;
   float t = clamp(1. - u_dehaze * .6 * clamp(min(hz.r, min(hz.g, hz.b)), 0., 1.), .4, 2.);
@@ -87,11 +95,11 @@ void main(){
 
   // Basic tone on luminance, hue preserved
   float l = luma(g), l2 = l;
-  l2 += u_shadows * .3 * (1.-smoothstep(0., .6, l)) * smoothstep(0., .1, l);
-  l2 += u_highlights * .3 * smoothstep(.4, 1., l);
+  l2 += (u_shadows + lS) * .3 * (1.-smoothstep(0., .6, l)) * smoothstep(0., .1, l);
+  l2 += (u_highlights + lH) * .3 * smoothstep(.4, 1., l);
   float lo = -u_blacks*.15, hi = 1. - u_whites*.15;
   l2 = (l2 - lo) / (hi - lo);
-  l2 = .5 + (l2 - .5) * (1. + u_contrast);
+  l2 = .5 + (l2 - .5) * (1. + u_contrast + lC);
   g = clamp(g * max(l2, 0.) / max(l, 1e-4), 0., 1.);
 
   // Tone curve LUT (parametric ∘ point), per channel
@@ -113,7 +121,7 @@ void main(){
   g += gShadow * wS + gMid * max(0., 1. - wS - wH) + gHigh * wH;
 
   float gray = luma(g), sat = max(g.r, max(g.g, g.b)) - min(g.r, min(g.g, g.b));
-  g = mix(vec3(gray), g, 1. + u_saturation);
+  g = mix(vec3(gray), g, 1. + u_saturation + lSa);
   g = mix(vec3(gray), g, 1. + u_vibrance * (1. - clamp(sat, 0., 1.)));
 
   // Post-crop vignette + grain

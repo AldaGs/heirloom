@@ -57,6 +57,18 @@ export const SLIDERS: Slider[] = [
   s('redHue', 'Red hue'), s('redSat', 'Red sat'), s('greenHue', 'Green hue'), s('greenSat', 'Green sat'), s('blueHue', 'Blue hue'), s('blueSat', 'Blue sat'),
 ];
 
+// Masks (AI Masking): 4 slots, each with local adjustments. Mask pixels live in the photo's layers (history step `mk`).
+export const MASKS = 4;
+export const MASK_ADJ: [string, string, number, number, number][] = [ // key, label, min, max, step
+  ['exposure', 'Exposure', -4, 4, 0.05], ['temp', 'Temp', -100, 100, 1], ['tint', 'Tint', -100, 100, 1], ['contrast', 'Contrast', -100, 100, 1],
+  ['highlights', 'Highlights', -100, 100, 1], ['shadows', 'Shadows', -100, 100, 1], ['clarity', 'Clarity', -100, 100, 1], ['saturation', 'Saturation', -100, 100, 1],
+];
+export const maskKey = (i: number, k: string) => `m${i}_${k}`;
+SLIDERS.push(...Array.from({ length: MASKS }, (_, i) => [
+  ...MASK_ADJ.map(([k, label, min, max, step]) => s(maskKey(i, k), `Mask ${i + 1} ${label}`, min, max, { step, hidden: true })),
+  s(maskKey(i, 'inv'), `Mask ${i + 1} invert`, 0, 1, { hidden: true }),
+]).flat());
+
 export const GEOMETRY = ['angle', 'cropX', 'cropY', 'cropW', 'cropH'];
 
 export const PRESETS: { name: string; swatch: string; v: Values }[] = [
@@ -77,6 +89,7 @@ export function round(s: Slider, x: number) {
 }
 
 export function fmt(s: Slider, x: number) {
+  if (s.k.endsWith('_inv')) return x ? 'on' : 'off';
   if (s.k === 'temp') return String(x);
   if (s.k === 'exposure') return (x > 0 ? '+' : '') + x.toFixed(2);
   if (s.unit) return `${x}${s.unit}`;

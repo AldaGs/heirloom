@@ -16,6 +16,17 @@ const MODELS = [
     build: 'python3 scripts/convert_nafnet.py   (needs: pip install torch onnx)',
     sha256: '3c19cdf9639c1458ebdfa0b2d77a3a6d5652ee60e0c7c9d9437b5b26651792d1',
   },
+  {
+    // MobileSAM (Apache-2.0): encoder runs once per photo, decoder per click. Built by scripts/convert_mobilesam.py (deterministic).
+    file: 'mobilesam_encoder.onnx',
+    build: 'python3 scripts/convert_mobilesam.py   (needs: pip install torch onnx timm)',
+    sha256: '8c8c964f4bd5d850f9a4ee680d01fd3cccb667d04daaa7d14be878a214cdcee8',
+  },
+  {
+    file: 'mobilesam_decoder.onnx',
+    build: 'python3 scripts/convert_mobilesam.py   (needs: pip install torch onnx timm)',
+    sha256: 'ed3ed0820c26da1d744c5e5c3e858e9f80765e422fae03b9ecb5412b85ba0c32',
+  },
 ];
 
 const dir = new URL('../public/models/', import.meta.url);

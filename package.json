@@ -4,7 +4,7 @@
   "description": "",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && node src/history.test.ts && node src/noise.test.ts && node src/batch.test.ts && node src/ai.test.ts && node src/remove.test.ts && node src/denoise.test.ts && vite build",
+    "build": "tsc --noEmit && node src/history.test.ts && node src/noise.test.ts && node src/batch.test.ts && node src/ai.test.ts && node src/remove.test.ts && node src/denoise.test.ts && node src/sam.test.ts && vite build",
     "preview": "vite preview",
     "fetch-models": "node scripts/fetch-models.mjs"
   },

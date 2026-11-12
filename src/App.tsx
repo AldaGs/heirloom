@@ -15,9 +15,12 @@ import { Library } from './Library.tsx';
 import { Cull } from './Cull.tsx';
 import { ExportDialog, SettingsDialog, SyncDialog } from './Batch.tsx';
 import { aiEnabled, onAiChange, setAiEnabled } from './ai.ts';
-import { developPreview } from './render.ts';
+import { developPreview, maskData } from './render.ts';
 import type { Values } from './sliders.ts';
 import { DenoisePanel, RemoveOverlay, RemovePanel } from './Remove.tsx';
+import { MaskOverlay, MaskPanel } from './Mask.tsx';
+import { MASKS, MASK_ADJ, maskKey } from './sliders.ts';
+import type { Pt } from './sam-core.ts';
 import { NoiseField, ProceduralImageLoader } from './ProceduralImageLoader.tsx';
 
 type Zoom = 'fit' | 1 | 2;
@@ -35,7 +38,7 @@ export function App() {
   const mobile = useMedia('(max-width: 700px)');
   const [focus, setFocus] = useState(false);            // Focus mode: photo + one floating encoder
   const [lastTool, setLastTool] = usePref('lastTool', 'exposure'); // remembered per device
-  const [tool, setTool] = usePref<'edit' | 'presets' | 'crop' | 'info' | 'remove' | 'denoise'>('tool', 'edit');
+  const [tool, setTool] = usePref<'edit' | 'presets' | 'crop' | 'info' | 'remove' | 'denoise' | 'mask'>('tool', 'edit');
   const [brush, setBrush] = usePref('removeBrush', 3);
   const brushRef = useRef<HTMLCanvasElement | null>(null);
   const [rmBusy, setRmBusy] = useState(false), [rmMsg, setRmMsg] = useState('');
@@ -58,6 +61,8 @@ export function App() {
   const [ai, setAi] = useState(aiEnabled);
   useEffect(() => onAiChange(setAi), []);
   const removing = mode === 'develop' && tool === 'remove' && ai;
+  const masking = mode === 'develop' && tool === 'mask' && ai;
+  const sourceView = removing || masking; // tools that work in the source frame: unrotated, uncropped
   const [toast, setToast] = useState<{ msg: string; fails: string[] } | null>(null);
   const [importPreset, setImportPreset] = usePref('importPreset', 'Original');
   const [importAuto, setImportAuto] = usePref('importAuto', false);
@@ -187,6 +192,19 @@ export function App() {
     for (const p of photos) if (thumbRt.current.get(p.id) !== p.retouch) { const had = thumbRt.current.has(p.id); thumbRt.current.set(p.id, p.retouch); if (had || p.retouch) refreshThumb(p); }
   }, [photos]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Masks: decode the current step's mask images and hand them to the GPU (on load, edit, undo/redo)
+  const [maskVer, setMaskVer] = useState(0);
+  useEffect(() => {
+    if (!cur || loadedId !== cur.id || !pipe.current) return;
+    let live = true;
+    (async () => {
+      const imgs = await maskData(cur);
+      if (!live) return;
+      pipe.current!.setMasks(imgs); setMaskVer(x => x + 1);
+    })();
+    return () => { live = false; };
+  }, [cur?.masks, loadedId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Load current photo into the GPU
   useEffect(() => {
     if (!cur || !view.current || mode !== 'develop' || loadedId === cur.id) return;
@@ -211,7 +229,7 @@ export function App() {
     {
       const geom = Object.fromEntries(GEOMETRY.map(k => [k, cur.v[k]]));
       const v = bypass ? { ...base(cur), ...geom } : cur.v;
-      pipe.current!.render(removing ? { ...v, angle: 0 } : v, cur.asShot, cropping || removing); // Remove paints on the unrotated full frame
+      pipe.current!.render(sourceView ? { ...v, angle: 0 } : v, cur.asShot, cropping || sourceView); // Remove/Mask work on the unrotated full frame
       const h = histogram(view.current!);
       drawHist(histC.current!, h);
       if (miniHist.current) drawHist(miniHist.current, h);
@@ -221,7 +239,7 @@ export function App() {
       g.drawImage(view.current!, (n.width - view.current!.width * k) / 2, (n.height - view.current!.height * k) / 2, view.current!.width * k, view.current!.height * k);
       setFrame(f => f + 1);
     }
-  }, [cur?.v, bypass, loadedId, cropping, removing]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cur?.v, bypass, loadedId, cropping, sourceView, maskVer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onScroll = () => {
     const s = stage.current!;
@@ -268,7 +286,7 @@ export function App() {
   const commitLayer = async (layer: ImageData, label: string) => {
     const c = new OffscreenCanvas(layer.width, layer.height); c.getContext('2d')!.putImageData(layer, 0, 0);
     const blob = await c.convertToBlob({ type: 'image/png' }), id = crypto.randomUUID().slice(0, 8);
-    update(p => syncLayers(pushStep({ ...p, layers: { ...p.layers, [id]: blob } }, label, id)));
+    update(p => syncLayers(pushStep({ ...p, layers: { ...p.layers, [id]: blob } }, label, { rt: id })));
   };
 
   // AI Remove: model sees the unedited image (earlier AI edits included); result goes into a new layer version
@@ -304,6 +322,46 @@ export function App() {
     } catch (e) { setDnMsg((e as Error).name === 'AbortError' ? 'Cancelled — nothing changed.' : `Couldn't denoise: ${(e as Error).message}`); }
     setDn(null); dnAbort.current = null;
   };
+  // AI Masking (MobileSAM): analyse once per photo state, then each click re-segments in a fraction of a second
+  const [maskSel, setMaskSel] = useState(0);
+  const [pick, setPick] = useState<{ slot: number; pts: Pt[]; preview?: ImageData } | null>(null);
+  const [mkBusy, setMkBusy] = useState(false), [mkMsg, setMkMsg] = useState('');
+  const embKey = cur ? `${cur.id}:${cur.hist[cur.hi].rt ?? ''}` : '';
+  const slots = Array.from({ length: MASKS }, (_, i) => !!cur?.masks?.[i]);
+  const newMask = async () => {
+    if (!cur || !pipe.current) return;
+    const slot = slots.indexOf(false); if (slot < 0) return;
+    setMkBusy(true); setMkMsg('Analysing photo… (first run downloads ~25 MB)');
+    try {
+      const { embed } = await import('./sam.ts');
+      await embed(embKey, pipe.current.baseImage());
+      setPick({ slot, pts: [] }); setMkMsg('Click the subject.');
+    } catch (e) { setMkMsg(`Couldn't analyse: ${(e as Error).message}`); }
+    setMkBusy(false);
+  };
+  const addPoint = async (pt: Pt) => {
+    if (!pick) return;
+    const pts = [...pick.pts, pt]; setPick({ ...pick, pts }); setMkBusy(true);
+    try { const { segment } = await import('./sam.ts'); const preview = await segment(embKey, pts); setPick(pk => pk && { ...pk, pts, preview }); setMkMsg(''); }
+    catch (e) { setMkMsg(`Couldn't select: ${(e as Error).message}`); }
+    setMkBusy(false);
+  };
+  const finishMask = async () => {
+    if (!pick?.preview || !cur) { setMkMsg('Click the subject first.'); return; }
+    const c = new OffscreenCanvas(pick.preview.width, pick.preview.height); c.getContext('2d')!.putImageData(pick.preview, 0, 0);
+    const blob = await c.convertToBlob({ type: 'image/png' }), id = crypto.randomUUID().slice(0, 8), slot = pick.slot;
+    update(p => {
+      const mk = [...(p.hist[p.hi].mk ?? Array(MASKS).fill(''))]; mk[slot] = id;
+      return syncLayers(pushStep({ ...p, layers: { ...p.layers, [id]: blob } }, `Mask ${slot + 1}`, { mk }));
+    });
+    setMaskSel(slot); setPick(null); setMkMsg('Mask added. Adjust it below.');
+  };
+  const deleteMask = (i: number) => update(p => {
+    const mk = [...(p.hist[p.hi].mk ?? Array(MASKS).fill(''))]; mk[i] = '';
+    const v = { ...p.v, ...Object.fromEntries([...MASK_ADJ.map(([k]) => k), 'inv'].map(k => [maskKey(i, k), 0])) };
+    return syncLayers(pushStep(p, `Delete mask ${i + 1}`, { mk, v }));
+  });
+
   const exportJpeg = () => { if (cur) setDialog({ kind: 'export', ids: [cur.id] }); };
   const applySync = (vs: Map<string, Values>, label: string) => setPhotos(ps => ps.map(p => (vs.has(p.id) ? push(p, vs.get(p.id)!, label) : p)));
 
@@ -336,7 +394,9 @@ export function App() {
   // Keyboard
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).tagName === 'INPUT' || mode !== 'develop') return;
+      // text fields keep their own keys; checkboxes, sliders and buttons don't swallow shortcuts
+      const t = e.target as HTMLElement, typing = t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && !['checkbox', 'radio', 'range', 'button'].includes((t as HTMLInputElement).type));
+      if (typing || mode !== 'develop') return;
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
       else if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
@@ -440,6 +500,9 @@ export function App() {
           <NoiseField active={loading} className="aurora" />
           <span className="shimmer-text" role="status">{busy || 'Developing…'}</span>
         </div>
+        {masking && cur && view.current && loadedId === cur.id && (
+          <MaskOverlay canvas={view.current} picking={!!pick} pts={pick?.pts ?? []} mask={pick ? pick.preview : undefined} onPoint={addPoint} />
+        )}
         {removing && cur && view.current && loadedId === cur.id && <RemoveOverlay canvas={view.current} brushRef={brushRef} size={brush} />}
         {cropping && cur && view.current && loadedId === cur.id && (
           <CropOverlay canvas={view.current} rect={cur.v as Rect} ratio={ratioOf(aspect)} frameAspect={cur.w / cur.h} onChange={setRect} onCommit={commitCrop} />
@@ -493,16 +556,20 @@ export function App() {
           <ToolTab id="crop" tool={tool} setTool={setTool} label="Crop & straighten (R)" d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14" />
           {ai && <ToolTab id="denoise" tool={tool} setTool={setTool} label="AI Denoise (on-device)" d="M4 4h2v2H4zM10 4h2v2h-2zM16 4h2v2h-2zM7 10h2v2H7zM13 10h2v2h-2zM4 16h2v2H4zM10 16h2v2h-2zM16 16h2v2h-2zM19 10h2v2h-2z" />}
           {ai && <ToolTab id="remove" tool={tool} setTool={setTool} label="Remove (AI, on-device)" d="m3 21 12-12M15 4V2M15 10V8M19 6h2M11 6h2M17.5 3.5 19 2M17.5 8.5 19 10" />}
-          {ai && <button role="tab" aria-selected="false" disabled aria-label="Masking" title="AI module not installed yet"><Icon d="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" /></button>}
+          {ai && <ToolTab id="mask" tool={tool} setTool={setTool} label="Masking (AI, on-device)" d="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" />}
           <ToolTab id="info" tool={tool} setTool={setTool} label="Info (EXIF)" d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" />
         </div>
-        {tool === 'denoise' && ai && cur ? (
+        {masking && cur ? (
+          <MaskPanel slots={slots} sel={maskSel} setSel={setMaskSel} picking={!!pick} busy={mkBusy} msg={mkMsg} v={cur.v} byKey={byKey}
+            setVal={setVal} commit={commit} onNew={newMask} onFinish={finishMask} onCancel={() => { setPick(null); setMkMsg(''); }}
+            onDelete={deleteMask} done={() => { setPick(null); setTool('edit'); }} />
+        ) : tool === 'denoise' && ai && cur ? (
           <DenoisePanel strength={dnStrength} setStrength={setDnStrength} progress={dn} msg={dnMsg} pixels={cur.w * cur.h}
             onRun={runDenoise} onCancel={() => dnAbort.current?.abort()} done={() => setTool('edit')} />
         ) : removing && cur ? (
           <RemovePanel size={brush} setSize={setBrush} busy={rmBusy} msg={rmMsg} hasRetouch={!!cur.retouch} done={() => setTool('edit')}
             onRemove={runRemove} onClear={() => { const b = brushRef.current; b?.getContext('2d')!.clearRect(0, 0, b.width, b.height); }}
-            onRevert={() => { update(p => syncLayers(pushStep(p, 'Revert removals', undefined))); setRmMsg('Reverted. Undo with Ctrl+Z.'); }} />
+            onRevert={() => { update(p => syncLayers(pushStep(p, 'Revert removals', { rt: undefined }))); setRmMsg('Reverted. Undo with Ctrl+Z.'); }} />
         ) : cropping && cur ? (
           <CropPanel v={cur.v} aspect={aspect} setAspect={setAspect} angle={byKey.angle} setAngle={x => setVal('angle', x)} commit={commit}
             reset={() => resetKeys(GEOMETRY, 'Reset crop')} done={() => setTool('edit')} />
@@ -527,7 +594,7 @@ export function App() {
           <MNav icon="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z" label="Presets" on={tool === 'presets'} onClick={() => setTool('presets')} />
           <MNav icon="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14" label="Crop" on={tool === 'crop'} onClick={() => setTool('crop')} />
           <MNav icon="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M16 4v4M10 10v4M18 16v4" label="Edit" on={tool === 'edit' || tool === 'info'} onClick={() => setTool('edit')} />
-          {ai && <MNav icon="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" label="Masking" disabled />}
+          {ai && <MNav icon="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" label="Masking" on={tool === 'mask'} onClick={() => setTool('mask')} />}
           {ai && <MNav icon="M4 4h2v2H4zM10 4h2v2h-2zM16 4h2v2h-2zM7 10h2v2H7zM13 10h2v2h-2zM4 16h2v2H4zM10 16h2v2h-2z" label="Denoise" on={tool === 'denoise'} onClick={() => setTool('denoise')} />}
           {ai && <MNav icon="m3 21 12-12M15 4V2M15 10V8M19 6h2M11 6h2" label="Remove" on={tool === 'remove'} onClick={() => setTool('remove')} />}
         </nav>
@@ -563,7 +630,7 @@ export function App() {
   );
 }
 
-function ToolTab({ id, tool, setTool, label, d }: { id: 'edit' | 'crop' | 'info' | 'remove' | 'denoise'; tool: string; setTool: (t: 'edit' | 'crop' | 'info' | 'remove' | 'denoise') => void; label: string; d: string }) {
+function ToolTab({ id, tool, setTool, label, d }: { id: 'edit' | 'crop' | 'info' | 'remove' | 'denoise' | 'mask'; tool: string; setTool: (t: 'edit' | 'crop' | 'info' | 'remove' | 'denoise' | 'mask') => void; label: string; d: string }) {
   const on = tool === id || (id === 'edit' && tool === 'presets');
   return <button role="tab" aria-selected={on} className={on ? 'on' : ''} aria-label={label} title={label} onClick={() => setTool(id)}><Icon d={d} /></button>;
 }

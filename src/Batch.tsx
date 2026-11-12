@@ -197,7 +197,7 @@ export function SettingsDialog({ ai, setAi, onClose }: { ai: boolean; setAi: (on
           <input type="checkbox" role="switch" aria-checked={ai} checked={ai} onChange={e => toggle(e.target.checked)} />
         </label>
         <ul className="ai-mods">
-          {AI_MODULES.map(m => <li key={m.id}><b>{m.name}</b> — {m.what} <span className="muted">· {!ai ? 'off' : m.id === 'remove' || m.id === 'denoise' ? 'available' : 'not installed yet'}</span></li>)}
+          {AI_MODULES.map(m => <li key={m.id}><b>{m.name}</b> — {m.what} <span className="muted">· {!ai ? 'off' : 'available'}</span></li>)}
         </ul>
         <p className="muted small">This setting is per device.</p>
         <p className="muted small">Model licenses: {Object.values(MODELS).map(m => <a key={m.file} href={m.file.replace(/\.onnx$/, '.LICENSE.txt')} target="_blank" rel="noreferrer">{m.name} ({m.license})</a>)}</p>
