@@ -121,7 +121,7 @@ export function SyncDialog({ source, targets, onApply, onClose }: { source: Phot
         try {
           const { v, blob } = await developPreview(t, auto => planSync(source, t, opts, auto).v);
           const url = URL.createObjectURL(blob); urls.push(url);
-          r = { id: t.id, url, v, notes: planSync(source, t, { ...opts, autoExposure: false }).notes.concat(opts.autoExposure ? [`auto exposure ${v.exposure > 0 ? '+' : ''}${v.exposure.toFixed(2)}`] : []) };
+          r = { id: t.id, url, v, notes: planSync(source, t, { ...opts, autoExposure: false }).notes.concat(opts.autoExposure ? [`auto exposure ${v.exposure > 0 ? '+' : ''}${v.exposure.toFixed(3)}`] : []) };
         } catch (e) {
           // Preview failed: still apply if the settings themselves merge fine, but say why there's no preview
           r = { id: t.id, notes: [], err: (e as Error).message };

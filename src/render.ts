@@ -56,7 +56,7 @@ export const developPreview = (p: Photo, v: (auto: () => number) => Values) =>
     const { canvas, pipe } = dev();
     try { await pipe.load(src); } finally { if (src.kind === 'bitmap') src.bmp.close(); }
     pipe.setMasks(await maskData(p));
-    const auto = () => { pipe.render(base(p), p.asShot); return Math.round(autoExposure(histogram(canvas)) / 0.05) * 0.05; };
+    const auto = () => { pipe.render(base(p), p.asShot); return +autoExposure(histogram(canvas)).toFixed(3); };
     const vals = v(auto);
     pipe.render(vals, p.asShot);
     const k = Math.min(1, 360 / Math.max(canvas.width, canvas.height));

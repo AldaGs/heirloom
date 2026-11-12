@@ -145,7 +145,7 @@ export function App() {
       let v: Values = { ...base(p), ...pr?.v };
       if (pr) preset++;
       if (importAuto) {
-        try { v = (await developPreview(p, a => ({ ...v, exposure: +a().toFixed(2) }))).v; auto++; }
+        try { v = (await developPreview(p, a => ({ ...v, exposure: +a().toFixed(3) }))).v; auto++; }
         catch (e) { fails.push(`${p.name}: auto exposure skipped (${(e as Error).message})`); }
       }
       out.push(push(p, v, [pr && `Import preset: ${pr.name}`, importAuto && 'Auto'].filter(Boolean).join(' + ')));
@@ -340,8 +340,8 @@ export function App() {
   const auto = () => {
     if (!cur || !view.current) return;
     pipe.current!.render(base(cur), cur.asShot);
-    const exposure = Math.round(autoExposure(histogram(view.current)) / 0.05) * 0.05;
-    update(p => push(p, { ...p.v, exposure: +exposure.toFixed(2) }, 'Auto'));
+    const exposure = +autoExposure(histogram(view.current)).toFixed(3);
+    update(p => push(p, { ...p.v, exposure }, 'Auto'));
   };
   // AI Remove: model sees the unedited image (earlier removals included); result goes into the photo's retouch layer
   /** Current retouch layer as straight-alpha pixels at the loaded size (or undefined). */

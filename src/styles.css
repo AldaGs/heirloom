@@ -245,10 +245,13 @@ h4 { margin: 16px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .08e
   .m-nav { grid-area: nav; display: flex; justify-content: space-around; align-items: flex-start; padding-top: 8px; background: var(--bar); border-top: 1px solid var(--border); }
   .m-nav button { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 64px; min-height: 44px; font-size: 12px; color: var(--muted); }
   .m-nav button.on { color: var(--accent); }
-  .lib-head { flex-wrap: nowrap; }
-  .lib-head .muted, .lib-head .ghost { display: none; }
-  .lib-head .primary { position: fixed; right: 20px; bottom: 92px; z-index: 5; width: 56px; height: 56px; padding: 0; border-radius: 50%; font-size: 0; box-shadow: 0 6px 20px rgba(240,164,58,.35); }
-  .lib-head .primary::after { content: '+'; font-size: 30px; font-weight: 400; line-height: 56px; }
+  /* Library bar on phones: chips get their own scrolling row; actions wrap below; secondary ones in "More" */
+  .lib-head { flex-wrap: wrap; gap: 8px; }
+  .lib-head > .chips { flex: 1 0 100%; min-width: 0; }
+  .lib-head .lib-count, .lib-head > .grow { display: none; }
+  .lib-head .ghost, .lib-head select { min-height: 40px; }
+  .lib-head .lib-add { position: fixed; right: 20px; bottom: 92px; z-index: 5; width: 56px; height: 56px; padding: 0; border-radius: 50%; font-size: 0; box-shadow: 0 6px 20px rgba(240,164,58,.35); }
+  .lib-head .lib-add::after { content: '+'; font-size: 30px; font-weight: 400; line-height: 56px; }
   .chips::-webkit-scrollbar { display: none; }
 }
 
@@ -343,3 +346,15 @@ h4 { margin: 16px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .08e
 .code-in textarea { background: var(--bar); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px; font: 12px var(--mono); resize: vertical; }
 .code-in .row { margin-top: 8px; }
 .qr-video { width: 100%; max-width: 320px; border-radius: 8px; margin-top: 8px; }
+
+.lib-more { position: relative; }
+.lib-more summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; min-height: 40px; border-radius: 6px; }
+.lib-more summary::-webkit-details-marker { display: none; }
+.lib-more-menu { position: absolute; left: 0; top: calc(100% + 6px); max-width: calc(100vw - 24px); z-index: 10; display: grid; gap: 8px; padding: 12px; min-width: 240px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+.lib-more-menu .lib-import { flex-wrap: wrap; }
+@media (max-width: 700px) {
+  /* the menu spans the bar (anchored to .lib-head, which is sticky) instead of hanging off its button */
+  .lib-more { position: static; }
+  .lib-more-menu { left: 12px; right: 12px; top: 100%; min-width: 0; max-width: none; }
+}

@@ -1,4 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { Encoder } from './Encoder';
+import type { Slider } from './sliders.ts';
+
+// Tool settings use the same encoder control as every adjustment (drag, fine mode, typed values, double-click reset)
+export const BRUSH_SIZE: Slider = { k: 'brushSize', label: 'Brush size', min: 0.5, max: 20, step: 0.5, def: 3, unit: '%' };
+const STRENGTH: Slider = { k: 'denoiseStrength', label: 'Strength', min: 10, max: 100, step: 1, def: 70, unit: '%' };
 
 /** Brush layer over the Develop canvas (full frame, unrotated). Internal size = the loaded image's pixels. */
 export function RemoveOverlay({ canvas, brushRef, size }: { canvas: HTMLCanvasElement; brushRef: React.MutableRefObject<HTMLCanvasElement | null>; size: number }) {
@@ -49,7 +55,7 @@ export function RemovePanel({ size, setSize, busy, msg, hasRetouch, onRemove, on
     <section className="adjust remove-panel">
       <div className="sec-head"><h3>Remove</h3><button className="primary" onClick={done}>Done</button></div>
       <p className="muted small">Paint over the object or spot, then Remove. On-device AI (MI-GAN). For large areas, use several small strokes.</p>
-      <label className="brush-size">Brush <input type="range" min={0.5} max={15} step={0.5} value={size} onChange={e => setSize(+e.target.value)} /> <span>{size}%</span></label>
+      <Encoder s={BRUSH_SIZE} value={size} onChange={setSize} onCommit={() => {}} idPrefix="remove" />
       <div className="row">
         <button className="primary" onClick={onRemove} disabled={busy}>{busy ? 'Removing…' : 'Remove'}</button>
         <button className="ghost bordered" onClick={onClear} disabled={busy}>Clear brush</button>
@@ -69,7 +75,7 @@ export function DenoisePanel({ strength, setStrength, progress, msg, pixels, onR
     <section className="adjust remove-panel">
       <div className="sec-head"><h3>AI Denoise</h3><button className="primary" onClick={done} disabled={busy}>Done</button></div>
       <p className="muted small">Removes sensor noise from the whole photo, on this device (NAFNet). Runs on the unedited image, so your sliders still apply on top. {(pixels / 1e6).toFixed(0)} MP: seconds with WebGPU, minutes on CPU.</p>
-      <label className="brush-size">Strength <input type="range" min={10} max={100} step={5} value={strength} disabled={busy} onChange={e => setStrength(+e.target.value)} /> <span>{strength}%</span></label>
+      <Encoder s={STRENGTH} value={strength} onChange={setStrength} onCommit={() => {}} idPrefix="denoise" />
       <div className="row">
         {busy ? <button className="ghost bordered" onClick={onCancel}>Cancel</button> : <button className="primary" onClick={onRun}>Denoise</button>}
       </div>

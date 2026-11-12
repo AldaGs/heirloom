@@ -42,6 +42,6 @@ export function planSync(src: Target, dst: Target, o: SyncOpts, auto?: () => num
     if (next !== v.temp) notes.push('temp clamped');
     if (src.raw !== dst.raw) notes.push('WB copied across RAW/JPEG: check it');
   }
-  if (o.autoExposure && auto) { v.exposure = +auto().toFixed(2); notes.push('auto exposure'); }
+  if (o.autoExposure && auto) { v.exposure = +auto().toFixed(3); notes.push('auto exposure'); }
   return { v, notes };
 }

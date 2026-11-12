@@ -25,7 +25,7 @@ export const SLIDERS: Slider[] = [
   // Basic
   s('temp', 'Temp', 2000, 12000, { step: 50, def: 5500, track: 'linear-gradient(90deg,#3C7BE0,#D9D3C7,#E8A03A)' }),
   s('tint', 'Tint', -150, 150, { track: 'linear-gradient(90deg,#3FA45B,#D9D3C7,#C44FB5)' }),
-  s('exposure', 'Exposure', -5, 5, { step: 0.05 }),
+  s('exposure', 'Exposure', -5, 5, { step: 0.001 }), // thousandths of a stop
   s('contrast', 'Contrast'), s('highlights', 'Highlights'), s('shadows', 'Shadows'), s('whites', 'Whites'), s('blacks', 'Blacks'),
   s('texture', 'Texture'), s('clarity', 'Clarity'), s('dehaze', 'Dehaze'), s('vibrance', 'Vibrance'), s('saturation', 'Saturation'),
   // Tone curve: parametric regions + point curve
@@ -49,7 +49,7 @@ export const SLIDERS: Slider[] = [
   // Optics
   s('distortion', 'Distortion'), s('ca', 'Chromatic aberr.'),
   // Geometry (crop rect is a fraction of the straightened frame)
-  s('angle', 'Rotate', -180, 180, { step: 0.1, unit: '°' }), // any angle: quarter turns + a ±45° straighten (see orient())
+  s('angle', 'Rotate', -180, 180, { step: 0.01, unit: '°' }), // any angle: quarter turns + a ±45° straighten (see orient())
   s('flipH', 'Flip horizontal', 0, 1, { hidden: true }), s('flipV', 'Flip vertical', 0, 1, { hidden: true }),
   s('cropX', 'Crop X', 0, 1, { step: 0.0001, hidden: true }), s('cropY', 'Crop Y', 0, 1, { step: 0.0001, hidden: true }),
   s('cropW', 'Crop W', 0.02, 1, { step: 0.0001, def: 1, hidden: true }), s('cropH', 'Crop H', 0.02, 1, { step: 0.0001, def: 1, hidden: true }),
@@ -61,7 +61,7 @@ export const SLIDERS: Slider[] = [
 // Masks (AI Masking): 4 slots, each with local adjustments. Mask pixels live in the photo's layers (history step `mk`).
 export const MASKS = 4;
 export const MASK_ADJ: [string, string, number, number, number][] = [ // key, label, min, max, step
-  ['exposure', 'Exposure', -4, 4, 0.05], ['temp', 'Temp', -100, 100, 1], ['tint', 'Tint', -100, 100, 1], ['contrast', 'Contrast', -100, 100, 1],
+  ['exposure', 'Exposure', -4, 4, 0.001], ['temp', 'Temp', -100, 100, 1], ['tint', 'Tint', -100, 100, 1], ['contrast', 'Contrast', -100, 100, 1],
   ['highlights', 'Highlights', -100, 100, 1], ['shadows', 'Shadows', -100, 100, 1], ['clarity', 'Clarity', -100, 100, 1], ['saturation', 'Saturation', -100, 100, 1],
 ];
 export const maskKey = (i: number, k: string) => `m${i}_${k}`;
@@ -103,7 +103,7 @@ export function round(s: Slider, x: number) {
 export function fmt(s: Slider, x: number) {
   if (s.k.endsWith('_inv') || s.k === 'flipH' || s.k === 'flipV') return x ? 'on' : 'off';
   if (s.k === 'temp') return String(x);
-  if (s.k === 'exposure') return (x > 0 ? '+' : '') + x.toFixed(2);
+  if (s.k.endsWith('exposure')) return (x > 0 ? '+' : '') + x.toFixed(decimals(s.step));
   if (s.unit) return `${x}${s.unit}`;
   return (x > 0 && s.min < 0 ? '+' : '') + x;
 }

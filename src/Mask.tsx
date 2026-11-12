@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Encoder } from './Encoder';
+import { BRUSH_SIZE } from './Remove.tsx';
 import { MASKS, MASK_ADJ, maskKey, type Slider, type Values } from './sliders.ts';
 import { linearMask, radialMask, type Pt2 } from './mask-shapes.ts';
 import type { Pt } from './sam-core.ts';
@@ -125,7 +126,7 @@ export function MaskPanel({ ai, slots, sel, setSel, mode, setMode, busy, msg, v,
             <button className={'pill' + (mode.add ? ' on' : '')} role="radio" aria-checked={mode.add} onClick={() => setMode({ ...mode, add: true })}>Add</button>
             <button className={'pill' + (!mode.add ? ' on' : '')} role="radio" aria-checked={!mode.add} onClick={() => setMode({ ...mode, add: false })}>Subtract</button>
           </div>
-          <label className="brush-size">Size <input type="range" min={0.5} max={20} step={0.5} value={mode.size} onChange={e => setMode({ ...mode, size: +e.target.value })} /> <span>{mode.size}%</span></label>
+          <Encoder s={{ ...BRUSH_SIZE, def: 4 }} value={mode.size} onChange={x => setMode({ ...mode, size: x })} onCommit={() => {}} idPrefix="maskbrush" />
         </>}
         <div className="row">
           {mode.kind === 'pick' && <button className="primary" onClick={onFinishAI} disabled={busy}>Use mask</button>}
