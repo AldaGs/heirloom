@@ -13,7 +13,8 @@ import { decodeBitmap } from './decode.ts';
 import { exportLibrary, importLibrary, isEdited, FILTERS, albumsOf, inAlbum, byDate, withPreview, LABELS, LABEL_COLORS, base, buildPhoto, canOpenFolders, fileOf, importFolder, isImage, loadFolders, photoKey, writeSidecar, type Folder, type Photo } from './library.ts';
 import { Library } from './Library.tsx';
 import { Cull } from './Cull.tsx';
-import { ExportDialog, SyncDialog } from './Batch.tsx';
+import { ExportDialog, SettingsDialog, SyncDialog } from './Batch.tsx';
+import { aiEnabled, onAiChange, setAiEnabled } from './ai.ts';
 import { developPreview } from './render.ts';
 import type { Values } from './sliders.ts';
 import { NoiseField, ProceduralImageLoader } from './ProceduralImageLoader.tsx';
@@ -49,7 +50,9 @@ export function App() {
   const view = useRef<HTMLCanvasElement>(null), stage = useRef<HTMLDivElement>(null);
   const histC = useRef<HTMLCanvasElement>(null), navC = useRef<HTMLCanvasElement>(null);
   const fileIn = useRef<HTMLInputElement>(null);
-  const [dialog, setDialog] = useState<{ kind: 'export' | 'sync'; ids: string[] } | null>(null);
+  const [dialog, setDialog] = useState<{ kind: 'export' | 'sync' | 'settings'; ids: string[] } | null>(null);
+  const [ai, setAi] = useState(aiEnabled);
+  useEffect(() => onAiChange(setAi), []);
   const [toast, setToast] = useState<{ msg: string; fails: string[] } | null>(null);
   const [importPreset, setImportPreset] = usePref('importPreset', 'Original');
   const [importAuto, setImportAuto] = usePref('importAuto', false);
@@ -299,6 +302,7 @@ export function App() {
         {locked.map(f => <button key={f.key} className="ghost bordered" onClick={() => reconnect(f)} title="The browser asks for folder access again after a reload">Reconnect “{f.handle.name}”</button>)}
         <button className="icon" aria-label="Undo" title="Undo (Ctrl+Z)" onClick={undo} disabled={!cur || cur.hi === 0}><Icon d="M9 14 4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3" /></button>
         <button className="icon" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" onClick={redo} disabled={!cur || cur.hi === cur.hist.length - 1}><Icon d="m15 14 5-5-5-5M20 9H9a5 5 0 0 0 0 10h3" /></button>
+        <button className="icon" aria-label="Settings" title="Settings" onClick={() => setDialog({ kind: 'settings', ids: [] })}><Icon d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></button>
         <button className="primary" onClick={exportJpeg} disabled={!cur}>Export</button>
       </header>
       )}
@@ -406,8 +410,8 @@ export function App() {
         <div className="tools" role="tablist">
           <ToolTab id="edit" tool={tool} setTool={setTool} label="Edit" d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4" />
           <ToolTab id="crop" tool={tool} setTool={setTool} label="Crop & straighten (R)" d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14" />
-          <button role="tab" aria-selected="false" disabled aria-label="Remove / heal" title="Optional module"><Icon d="m3 21 12-12M15 4V2M15 10V8M19 6h2M11 6h2M17.5 3.5 19 2M17.5 8.5 19 10" /></button>
-          <button role="tab" aria-selected="false" disabled aria-label="Masking" title="Optional module"><Icon d="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" /></button>
+          {ai && <button role="tab" aria-selected="false" disabled aria-label="Remove / heal" title="AI module not installed yet"><Icon d="m3 21 12-12M15 4V2M15 10V8M19 6h2M11 6h2M17.5 3.5 19 2M17.5 8.5 19 10" /></button>}
+          {ai && <button role="tab" aria-selected="false" disabled aria-label="Masking" title="AI module not installed yet"><Icon d="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" /></button>}
           <ToolTab id="info" tool={tool} setTool={setTool} label="Info (EXIF)" d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" />
         </div>
         {cropping && cur ? (
@@ -434,8 +438,8 @@ export function App() {
           <MNav icon="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z" label="Presets" on={tool === 'presets'} onClick={() => setTool('presets')} />
           <MNav icon="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14" label="Crop" on={tool === 'crop'} onClick={() => setTool('crop')} />
           <MNav icon="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M16 4v4M10 10v4M18 16v4" label="Edit" on={tool === 'edit' || tool === 'info'} onClick={() => setTool('edit')} />
-          <MNav icon="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" label="Masking" disabled />
-          <MNav icon="m3 21 12-12M15 4V2M15 10V8M19 6h2M11 6h2" label="Remove" disabled />
+          {ai && <MNav icon="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" label="Masking" disabled />}
+          {ai && <MNav icon="m3 21 12-12M15 4V2M15 10V8M19 6h2M11 6h2" label="Remove" disabled />}
         </nav>
       )}
       {mobile && mode !== 'develop' && (
@@ -443,7 +447,7 @@ export function App() {
           <MNav icon="M3 3h18v18H3zM8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM21 15l-5-5L5 21" label="Photos" on />
           <MNav icon="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" label="Albums" disabled />
           <MNav icon="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z" label="Presets" disabled />
-          <MNav icon="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" label="Settings" disabled />
+          <MNav icon="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" label="Settings" onClick={() => setDialog({ kind: 'settings', ids: [] })} />
         </nav>
       )}
 
@@ -456,6 +460,7 @@ export function App() {
         <button className="add" onClick={() => fileIn.current!.click()} aria-label="Import photos">+</button>
         <input ref={fileIn} type="file" multiple hidden onChange={e => { addFiles(e.target.files!); e.target.value = ''; }} />
       </footer>
+      {dialog?.kind === 'settings' && <SettingsDialog ai={ai} setAi={setAiEnabled} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'export' && <ExportDialog photos={dialog.ids.map(id => photos.find(p => p.id === id)!).filter(Boolean)} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'sync' && cur && <SyncDialog source={cur} targets={dialog.ids.map(id => photos.find(p => p.id === id)!).filter(Boolean)} onApply={applySync} onClose={() => setDialog(null)} />}
       {toast && (

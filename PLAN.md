@@ -68,7 +68,8 @@ Tone curve (parametric + point) → Color Mixer (HSL) → Color Grading → Deta
 
 ## Phase 8 — Optional
 - ✅ Whole-library export/import: Library → Back up edits / Restore edits… (one JSON: every sidecar + albums, ratings, flags, full history; restore matches by file name + dimensions and lists what didn't match).
-- Next: global AI off switch + opt-in on-device modules, E2E sync, native shells.
+- ✅ Global AI switch (Settings, gear in top bar / mobile Settings tab): off by default, per device. `src/ai.ts` `loadModel()` is the only path to a model: refuses while off, same-origin only, drops cached models when turned off. Masking/Remove tabs are hidden while off (resolves open decision 3).
+- Next: the AI modules themselves (masking, remove, denoise) behind `loadModel`; E2E sync. Tauri/Capacitor shells skipped for now.
 E2E-encrypted sync (CRDT edit log), opt-in on-device AI modules (masking, denoise, remove) with a global off switch, Tauri/Capacitor shells (memory-card eject, haptics on iOS), whole-library export/import.
 
 ---
@@ -76,4 +77,4 @@ E2E-encrypted sync (CRDT edit log), opt-in on-device AI modules (masking, denois
 ## Open decisions
 1. Mobile fine-mode gesture: long-press vs two-finger drag (§1).
 2. Pricing model (§7) — product owner.
-3. Masking/Remove tabs in the mobile nav ship disabled until Phase 8, or hidden?
+3. ~~Masking/Remove tabs: disabled or hidden?~~ Hidden while AI is off.
