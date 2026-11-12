@@ -49,7 +49,8 @@ export const SLIDERS: Slider[] = [
   // Optics
   s('distortion', 'Distortion'), s('ca', 'Chromatic aberr.'),
   // Geometry (crop rect is a fraction of the straightened frame)
-  s('angle', 'Straighten', -45, 45, { step: 0.1, unit: '°' }),
+  s('angle', 'Rotate', -180, 180, { step: 0.1, unit: '°' }), // any angle: quarter turns + a ±45° straighten (see orient())
+  s('flipH', 'Flip horizontal', 0, 1, { hidden: true }), s('flipV', 'Flip vertical', 0, 1, { hidden: true }),
   s('cropX', 'Crop X', 0, 1, { step: 0.0001, hidden: true }), s('cropY', 'Crop Y', 0, 1, { step: 0.0001, hidden: true }),
   s('cropW', 'Crop W', 0.02, 1, { step: 0.0001, def: 1, hidden: true }), s('cropH', 'Crop H', 0.02, 1, { step: 0.0001, def: 1, hidden: true }),
   // Calibration
@@ -69,7 +70,17 @@ SLIDERS.push(...Array.from({ length: MASKS }, (_, i) => [
   s(maskKey(i, 'inv'), `Mask ${i + 1} invert`, 0, 1, { hidden: true }),
 ]).flat());
 
-export const GEOMETRY = ['angle', 'cropX', 'cropY', 'cropW', 'cropH'];
+export const GEOMETRY = ['angle', 'flipH', 'flipV', 'cropX', 'cropY', 'cropW', 'cropH'];
+
+/** Split a rotation into quarter turns (0..3, clockwise) + the remaining straighten angle in [-45°, 45°]. */
+export function orient(angle: number) {
+  const q = Math.round(angle / 90), quarter = ((q % 4) + 4) % 4;
+  return { quarter, rest: angle - q * 90 };
+}
+/** Width/height of the rotated frame (a quarter turn swaps them). */
+export const frameAspect = (w: number, h: number, angle: number) => (orient(angle).quarter % 2 ? h / w : w / h);
+/** Wrap any angle into (-180, 180]. */
+export const wrapAngle = (a: number) => { const x = ((a + 180) % 360 + 360) % 360 - 180; return x === -180 ? 180 : +x.toFixed(1); };
 
 export const PRESETS: { name: string; swatch: string; v: Values }[] = [
   { name: 'Original', swatch: '#6B5B78', v: {} },
@@ -89,7 +100,7 @@ export function round(s: Slider, x: number) {
 }
 
 export function fmt(s: Slider, x: number) {
-  if (s.k.endsWith('_inv')) return x ? 'on' : 'off';
+  if (s.k.endsWith('_inv') || s.k === 'flipH' || s.k === 'flipV') return x ? 'on' : 'off';
   if (s.k === 'temp') return String(x);
   if (s.k === 'exposure') return (x > 0 ? '+' : '') + x.toFixed(2);
   if (s.unit) return `${x}${s.unit}`;

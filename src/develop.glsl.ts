@@ -7,7 +7,7 @@ precision highp float;
 uniform sampler2D L, LUT, M; uniform bool isRaw;
 uniform float mkA[32]; uniform vec4 mkInv, mkOn; // masks: 4 slots × 8 local adjustments, packed in M's RGBA
 uniform float lodTex, lodClar, lodHaze, lodSharp;
-uniform vec4 crop; uniform float angle, rotScale, aspect; uniform vec2 outSize;
+uniform vec4 crop; uniform float angle, rotScale, aspect; uniform vec2 outSize; uniform int quarter; uniform vec2 flip; // aspect = rotated frame's
 uniform float ${SCALARS.map(n => 'u_' + n).join(',')};
 uniform float hueA[8], satA[8], lumA[8];
 uniform mat3 calib; uniform vec3 gShadow, gMid, gHigh;
@@ -27,7 +27,12 @@ vec2 mapUV(vec2 q){
   float s = sin(angle), k = cos(angle);
   c = mat2(k, s, -s, k) * c / rotScale;
   c *= 1. + u_distortion * .25 * dot(c, c) / (.25 * aspect * aspect + .25);
-  return c / vec2(aspect, 1.) + .5;
+  vec2 o = c / vec2(aspect, 1.) + .5;           // uv in the rotated (quarter-turned) frame
+  o = mix(o, 1. - o, flip);                      // mirror as displayed
+  if (quarter == 1) return vec2(o.y, 1. - o.x);  // → source uv (frame turned 90° clockwise)
+  if (quarter == 2) return 1. - o;
+  if (quarter == 3) return vec2(1. - o.y, o.x);
+  return o;
 }
 float band(float arr[8], float h){ // piecewise-linear across band centres (partition of unity)
   float C[9] = float[9](0.,30.,60.,120.,180.,240.,270.,300.,360.);

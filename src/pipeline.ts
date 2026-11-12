@@ -1,4 +1,4 @@
-import { BANDS, MASKS, maskKey, type Values } from './sliders.ts';
+import { BANDS, MASKS, maskKey, orient, type Values } from './sliders.ts';
 import { maskUniforms } from './pipeline-uniforms.ts';
 import { buildLut } from './curve.ts';
 import DEVELOP, { SCALARS } from './develop.glsl.ts';
@@ -169,7 +169,8 @@ export function createPipeline(canvas: HTMLCanvasElement) {
     render(v: Values, asShot = 5500, fullFrame = false) {
       if (!lin) return;
       const cr = fullFrame ? [0, 0, 1, 1] : [v.cropX, v.cropY, v.cropW, v.cropH];
-      const cw = Math.max(1, Math.round(cr[2] * srcW)), ch = Math.max(1, Math.round(cr[3] * srcH));
+      const turned = orient(v.angle ?? 0).quarter % 2 === 1, fw = turned ? srcH : srcW, fh = turned ? srcW : srcH;
+      const cw = Math.max(1, Math.round(cr[2] * fw)), ch = Math.max(1, Math.round(cr[3] * fh));
       if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
       gl.useProgram(dev);
       gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, lut);
@@ -183,7 +184,8 @@ export function createPipeline(canvas: HTMLCanvasElement) {
       gl.uniform1fv(loc('mkA[0]'), maskUniforms(v));
       gl.uniform4fv(loc('mkInv'), Array.from({ length: MASKS }, (_, i) => (v[maskKey(i, 'inv')] ? 1 : 0)));
       gl.uniform4fv(loc('mkOn'), maskOn);
-      const a = (v.angle * Math.PI) / 180, asp = srcW / srcH;
+      const { quarter, rest } = orient(v.angle ?? 0), a = (rest * Math.PI) / 180, asp = quarter % 2 ? srcH / srcW : srcW / srcH;
+      gl.uniform1i(loc('quarter'), quarter); gl.uniform2f(loc('flip'), v.flipH ? 1 : 0, v.flipV ? 1 : 0);
       gl.uniform4f(loc('crop'), cr[0], cr[1], cr[2], cr[3]);
       gl.uniform1f(loc('angle'), a); gl.uniform1f(loc('aspect'), asp);
       gl.uniform1f(loc('rotScale'), Math.cos(Math.abs(a)) + Math.sin(Math.abs(a)) * Math.max(asp, 1 / asp));

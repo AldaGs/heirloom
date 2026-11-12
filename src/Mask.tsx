@@ -16,7 +16,8 @@ export function MaskOverlay({ canvas, mask, pts, picking, onPoint }: {
     };
     measure();
     const ro = new ResizeObserver(measure); ro.observe(canvas);
-    return () => ro.disconnect();
+    const st = canvas.closest('.stage'); st?.addEventListener('scroll', measure); // follow the image when zoomed in
+    return () => { ro.disconnect(); st?.removeEventListener('scroll', measure); };
   }, [canvas]);
   useEffect(() => {
     const t = tint.current!; if (!mask) { t.width = t.height = 1; t.getContext('2d')!.clearRect(0, 0, 1, 1); return; }

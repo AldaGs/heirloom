@@ -11,7 +11,8 @@ export function RemoveOverlay({ canvas, brushRef, size }: { canvas: HTMLCanvasEl
     };
     measure();
     const ro = new ResizeObserver(measure); ro.observe(canvas);
-    return () => ro.disconnect();
+    const st = canvas.closest('.stage'); st?.addEventListener('scroll', measure); // follow the image when zoomed in
+    return () => { ro.disconnect(); st?.removeEventListener('scroll', measure); };
   }, [canvas]);
   useEffect(() => {
     const b = brushRef.current!;

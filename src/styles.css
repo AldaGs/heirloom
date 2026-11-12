@@ -327,3 +327,7 @@ h4 { margin: 16px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .08e
 .mask-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .mask-list li { display: flex; gap: 4px; } .mask-list li button:first-child { flex: 1; text-align: left; padding: 8px 10px; border: 1px solid var(--border); }
 .mask-list li button.on { border-color: var(--accent); color: var(--accent); }
+.stage { position: relative; }
+.stage[data-zoom="in"] canvas { margin: auto; cursor: grab; }
+.stage[data-zoom="in"] canvas:active { cursor: grabbing; }
+.zoom-pct { font: 12px var(--mono); color: var(--text-2); min-width: 44px; text-align: center; }

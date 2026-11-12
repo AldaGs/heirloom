@@ -48,3 +48,18 @@ const res = importLibrary([mk('1', 'x.jpg'), mk('2', 'z.jpg')], file);
 assert.equal(res.matched, 1); assert.deepEqual(res.missing, ['y.jpg']);
 assert.equal(res.photos[0].v.exposure, 1.5); assert.equal(res.photos[0].rating, 4); assert.equal(res.photos[0].album, 'Trip');
 console.log('library backup ok');
+
+// rotation / flip geometry
+const { orient, frameAspect, wrapAngle } = await import('./sliders.ts');
+const { turnRect, flipRect } = await import('./crop-geom.ts');
+assert.deepEqual(orient(0), { quarter: 0, rest: 0 }); assert.deepEqual(orient(30), { quarter: 0, rest: 30 });
+assert.deepEqual(orient(90), { quarter: 1, rest: 0 }); assert.deepEqual(orient(100), { quarter: 1, rest: 10 });
+assert.deepEqual(orient(-90), { quarter: 3, rest: 0 }); assert.deepEqual(orient(180), { quarter: 2, rest: 0 }); assert.deepEqual(orient(-170), { quarter: 2, rest: 10 });
+assert.equal(frameAspect(6000, 4000, 90), 4000 / 6000); assert.equal(frameAspect(6000, 4000, 30), 1.5);
+assert.equal(wrapAngle(180 + 90), -90); assert.equal(wrapAngle(-180 - 90), 90); assert.equal(wrapAngle(90 + 90), 180);
+const rc = { cropX: .1, cropY: .2, cropW: .3, cropH: .4 };
+const near = (a: any, b: any) => Object.keys(b).forEach(k => assert.ok(Math.abs(a[k] - b[k]) < 1e-9, k));
+near(turnRect(rc, 1), { cropX: .4, cropY: .1, cropW: .4, cropH: .3 });
+near(turnRect(turnRect(rc, 1), -1), rc); near(turnRect(turnRect(turnRect(turnRect(rc, 1), 1), 1), 1), rc);
+near(flipRect(rc, 'h'), { ...rc, cropX: .6 }); near(flipRect(flipRect(rc, 'v'), 'v'), rc);
+console.log('geometry ok');

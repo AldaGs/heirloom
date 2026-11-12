@@ -84,6 +84,10 @@ E2E-encrypted sync (CRDT edit log), opt-in on-device AI modules (masking, denois
 
 ---
 
+## Extras (after Phase 7)
+- ✅ Zoom: mouse wheel / trackpad pinch (ctrl+wheel) / two-finger touch pinch, anchored at the pointer, fit → 800%; drag to pan; double-click toggles Fit/100%; +/- keys; live % readout. Crop forces Fit; Remove/Mask overlays follow the zoomed image.
+- ✅ Rotate any angle (−180°…180°) + 90° buttons ([ / ] keys) + flip horizontal/vertical. The shader splits the angle into quarter turns + a ±45° straighten (auto-crop stays sensible), swaps output size on odd quarter turns, and the crop box turns/mirrors with the picture.
+
 ## Deploying (Vercel)
 - Install command: `npm install && npm run fetch-models`. Build command: `npm run build`.
 - `HEIRLOOM_MODELS_URL=https://github.com/AldaGs/heirloom/releases/download/models` (set for Production **and** Preview). The release `models` holds the self-built ONNX files (NAFNet, MobileSAM); MI-GAN comes from Hugging Face. Every file is sha256-checked against `scripts/fetch-models.mjs`.

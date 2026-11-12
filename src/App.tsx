@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Encoder } from './Encoder';
 import { autoExposure, createPipeline, histogram } from './pipeline.ts';
 import { goto, push, pushStep, same } from './history.ts';
 import { PRESETS } from './sliders.ts';
 import { Adjustments, byKey } from './Adjustments.tsx';
-import { ASPECTS, CropOverlay, CropPanel, fitAspect, type Rect } from './Crop.tsx';
+import { ASPECTS, CropOverlay, CropPanel, fitAspect, flipRect, turnRect, type Rect } from './Crop.tsx';
+import { frameAspect, orient, wrapAngle } from './sliders.ts';
 import { GEOMETRY } from './sliders.ts';
 import { useMedia, usePref } from './prefs.ts';
 import { decodeRaw, fmtShutter } from './raw.ts';
@@ -23,7 +24,8 @@ import { MASKS, MASK_ADJ, maskKey } from './sliders.ts';
 import type { Pt } from './sam-core.ts';
 import { NoiseField, ProceduralImageLoader } from './ProceduralImageLoader.tsx';
 
-type Zoom = 'fit' | 1 | 2;
+type Zoom = 'fit' | number; // number: 1 = 100% (one image pixel per device pixel)
+const ZOOM_MAX = 8;
 
 const withUrl = (p: Photo): Photo => ({ ...p, url: p.thumb ? URL.createObjectURL(p.thumb) : undefined });
 const ago = (t: number) => { const m = Math.floor((Date.now() - t) / 60000); return m < 1 ? 'now' : m < 60 ? `${m}m` : `${Math.floor(m / 60)}h`; };
@@ -45,6 +47,7 @@ export function App() {
   const [aspect, setAspectName] = usePref('cropAspect', 'Free');
   const miniHist = useRef<HTMLCanvasElement>(null);
   const cropping = mode === 'develop' && tool === 'crop';
+  const cropRef = useRef(false); cropRef.current = cropping; // crop works on the fitted view
   const swipe = useRef<number | null>(null);
   const [locked, setLocked] = useState<Folder[]>([]); // folders whose permission must be re-granted after a reload
   const granted = useRef(new Map<string, FileSystemDirectoryHandle>());
@@ -229,7 +232,7 @@ export function App() {
     {
       const geom = Object.fromEntries(GEOMETRY.map(k => [k, cur.v[k]]));
       const v = bypass ? { ...base(cur), ...geom } : cur.v;
-      pipe.current!.render(sourceView ? { ...v, angle: 0 } : v, cur.asShot, cropping || sourceView); // Remove/Mask work on the unrotated full frame
+      pipe.current!.render(sourceView ? { ...v, angle: 0, flipH: 0, flipV: 0 } : v, cur.asShot, cropping || sourceView); // Remove/Mask work on the unrotated full frame
       const h = histogram(view.current!);
       drawHist(histC.current!, h);
       if (miniHist.current) drawHist(miniHist.current, h);
@@ -247,16 +250,76 @@ export function App() {
   };
   useEffect(onScroll, [zoom, frame]);
 
+  // ---- Continuous zoom: wheel / trackpad pinch / touch pinch, anchored at the pointer; drag to pan ----
+  const anchor = useRef<{ rx: number; ry: number; cx: number; cy: number } | null>(null);
+  const PAD = () => (mobile ? 8 : 32);
+  const fitScale = () => {
+    const s = stage.current, c = view.current; if (!s || !c?.width) return 1;
+    return Math.min((s.clientWidth - 2 * PAD()) / c.width, (s.clientHeight - 2 * PAD()) / c.height) * devicePixelRatio;
+  };
+  const scaleNow = () => (zoom === 'fit' ? fitScale() : zoom);
+  /** Zoom to `next` keeping the image point under (clientX, clientY) in place. */
+  const zoomAt = (next: number, clientX: number, clientY: number) => {
+    const s = stage.current, c = view.current; if (!s || !c || !cur) return;
+    const fit = fitScale(), z = Math.min(ZOOM_MAX, Math.max(fit, next));
+    const cr = c.getBoundingClientRect(), sr = s.getBoundingClientRect();
+    anchor.current = { rx: (clientX - cr.left) / cr.width, ry: (clientY - cr.top) / cr.height, cx: clientX - sr.left, cy: clientY - sr.top };
+    setZoom(z <= fit * 1.001 ? 'fit' : +z.toFixed(4));
+  };
+  useLayoutEffect(() => {
+    const a = anchor.current, s = stage.current, c = view.current; anchor.current = null;
+    if (!a || !s || !c || zoom === 'fit') return;
+    s.scrollLeft = c.offsetLeft + a.rx * c.offsetWidth - a.cx;
+    s.scrollTop = c.offsetTop + a.ry * c.offsetHeight - a.cy;
+  }, [zoom]);
+  const zoomRef = useRef(zoomAt); zoomRef.current = zoomAt;
+  const scaleRef = useRef(scaleNow); scaleRef.current = scaleNow;
+  useEffect(() => {
+    const s = stage.current; if (!s) return;
+    // wheel: mouse wheel zooms; trackpad pinch arrives as ctrl+wheel with small deltas
+    const wheel = (e: WheelEvent) => {
+      if (!view.current?.width || cropRef.current) return;
+      e.preventDefault();
+      const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      zoomRef.current(scaleRef.current() * Math.exp(-d * (e.ctrlKey ? 0.01 : 0.0015)), e.clientX, e.clientY);
+    };
+    // touch pinch (two fingers); one finger keeps native scrolling / the swipe gesture
+    let pinch: { d: number; z: number } | null = null;
+    const dist = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const tstart = (e: TouchEvent) => { if (e.touches.length === 2 && !cropRef.current) { pinch = { d: dist(e.touches), z: scaleRef.current() }; swipe.current = null; } };
+    const tmove = (e: TouchEvent) => {
+      if (!pinch || e.touches.length !== 2) return;
+      e.preventDefault();
+      zoomRef.current(pinch.z * dist(e.touches) / pinch.d, (e.touches[0].clientX + e.touches[1].clientX) / 2, (e.touches[0].clientY + e.touches[1].clientY) / 2);
+    };
+    const tend = (e: TouchEvent) => { if (e.touches.length < 2) pinch = null; };
+    s.addEventListener('wheel', wheel, { passive: false });
+    s.addEventListener('touchstart', tstart, { passive: true });
+    s.addEventListener('touchmove', tmove, { passive: false });
+    s.addEventListener('touchend', tend);
+    return () => { s.removeEventListener('wheel', wheel); s.removeEventListener('touchstart', tstart); s.removeEventListener('touchmove', tmove); s.removeEventListener('touchend', tend); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // mouse drag pans while zoomed in
+  const pan = useRef<{ x: number; y: number } | null>(null);
+
   // Actions
   const setVal = (k: string, x: number) => { setLastTool(k); update(p => ({ ...p, v: { ...p.v, [k]: x } })); };
   // Crop tool (FIXER_IMPROVEMENTS §4 geometry). Rect is a fraction of the straightened frame.
-  const ratioOf = (name: string) => { const r = ASPECTS.find(a => a[0] === name)?.[1]; return r === 'orig' ? (cur ? cur.w / cur.h : null) : r ?? null; };
+  const ratioOf = (name: string) => { const r = ASPECTS.find(a => a[0] === name)?.[1]; return r === 'orig' ? (cur ? frameAspect(cur.w, cur.h, cur.v.angle) : null) : r ?? null; };
   const setRect = (r: Rect) => update(p => ({ ...p, v: { ...p.v, ...r } }));
+  // 90° turns keep the straighten part and carry the crop box along; flips mirror it
+  const turn = (dir: 1 | -1) => update(p => {
+    // the flip is applied on top of the rotation, so with one flip on, a visual clockwise turn is a counter-clockwise angle step
+    const mirrored = !!p.v.flipH !== !!p.v.flipV, step = (mirrored ? -dir : dir) * 90;
+    const a = wrapAngle(p.v.angle + step), r = orient(a).quarter !== orient(p.v.angle).quarter ? turnRect(p.v as Rect, dir) : (p.v as Rect);
+    return push(p, { ...p.v, ...r, angle: a }, dir === 1 ? 'Rotate right' : 'Rotate left');
+  });
+  const flip = (axis: 'h' | 'v') => update(p => push(p, { ...p.v, ...flipRect(p.v as Rect, axis), [axis === 'h' ? 'flipH' : 'flipV']: p.v[axis === 'h' ? 'flipH' : 'flipV'] ? 0 : 1 }, axis === 'h' ? 'Flip horizontal' : 'Flip vertical'));
   const commitCrop = () => update(p => push(p, p.v, 'Crop'));
   const setAspect = (name: string) => {
     setAspectName(name);
     const r = ratioOf(name);
-    if (cur && r) update(p => push(p, { ...p.v, ...fitAspect(p.v as Rect, r, p.w / p.h) }, `Crop ${name}`));
+    if (cur && r) update(p => push(p, { ...p.v, ...fitAspect(p.v as Rect, r, frameAspect(p.w, p.h, p.v.angle)) }, `Crop ${name}`));
   };
   const resetKeys = (keys: string[], label: string) => update(p => {
     const b = base(p);
@@ -404,6 +467,8 @@ export function App() {
       else if (!mod && e.key.toLowerCase() === 'f') setFocus(f => !f);
       else if (e.key === 'Escape' || (e.key === 'Enter' && tool === 'crop')) { setFocus(false); if (tool === 'crop') setTool('edit'); }
       else if (!mod && e.key.toLowerCase() === 'r') setTool(t => (t === 'crop' ? 'edit' : 'crop'));
+      else if (!mod && (e.key === '[' || e.key === ']')) turn(e.key === ']' ? 1 : -1);
+      else if (!mod && (e.key === '+' || e.key === '=' || e.key === '-') && !cropping) { const r = stage.current!.getBoundingClientRect(); zoomAt(scaleNow() * (e.key === '-' ? 1 / 1.25 : 1.25), r.left + r.width / 2, r.top + r.height / 2); }
     };
     const up = (e: KeyboardEvent) => { if (e.key === '\\') setBypass(false); };
     addEventListener('keydown', down); addEventListener('keyup', up);
@@ -411,6 +476,7 @@ export function App() {
   });
 
   const canvasStyle = zoom === 'fit' || !cur ? undefined : { width: ((view.current?.width ?? cur.w) * zoom) / devicePixelRatio, maxWidth: 'none', maxHeight: 'none' };
+  useEffect(() => { if (cropping) setZoom('fit'); }, [cropping]);
   const list = photos.filter(p => FILTERS[filter][1](p) && inAlbum(album)(p)).sort(byDate); // Library order, also used by Cull + filmstrip
   const loading = mode === 'develop' && !!cur && loadedId !== cur.id;
   const activePreset = cur && PRESETS.find(p => same(cur.v, { ...base(cur), ...p.v }))?.name;
@@ -488,8 +554,12 @@ export function App() {
       </aside>
 
       <main className="center">
-        <div className="stage scroll" ref={stage} onScroll={onScroll} data-zoom={zoom}
-          onTouchStart={e => { swipe.current = e.touches[0].clientY; }}
+        <div className="stage scroll" ref={stage} onScroll={onScroll} data-zoom={zoom === 'fit' ? 'fit' : 'in'}
+          onPointerDown={e => { if (zoom !== 'fit' && e.pointerType === 'mouse' && e.button === 0) { pan.current = { x: e.clientX, y: e.clientY }; e.currentTarget.setPointerCapture(e.pointerId); } }}
+          onPointerMove={e => { const p = pan.current; if (!p) return; e.currentTarget.scrollBy(p.x - e.clientX, p.y - e.clientY); pan.current = { x: e.clientX, y: e.clientY }; }}
+          onPointerUp={() => { pan.current = null; }}
+          onDoubleClick={e => { if (!cropping) zoom === 'fit' ? zoomAt(1, e.clientX, e.clientY) : setZoom('fit'); }}
+          onTouchStart={e => { swipe.current = e.touches.length === 1 ? e.touches[0].clientY : null; }}
           onTouchEnd={e => { const y0 = swipe.current; swipe.current = null; if (y0 !== null && zoom === 'fit' && Math.abs(e.changedTouches[0].clientY - y0) > 80) setFocus(f => !f); }}>
           {!cur && <div className="empty">Drop photos anywhere or <button className="primary" onClick={() => fileIn.current!.click()}>Import…</button></div>}
           <canvas ref={view} hidden={!cur} style={canvasStyle} />
@@ -505,7 +575,7 @@ export function App() {
         )}
         {removing && cur && view.current && loadedId === cur.id && <RemoveOverlay canvas={view.current} brushRef={brushRef} size={brush} />}
         {cropping && cur && view.current && loadedId === cur.id && (
-          <CropOverlay canvas={view.current} rect={cur.v as Rect} ratio={ratioOf(aspect)} frameAspect={cur.w / cur.h} onChange={setRect} onCommit={commitCrop} />
+          <CropOverlay canvas={view.current} rect={cur.v as Rect} ratio={ratioOf(aspect)} frameAspect={frameAspect(cur.w, cur.h, cur.v.angle)} onChange={setRect} onCommit={commitCrop} />
         )}
         {mobile && cur && <>
           <canvas className="mini-hist" ref={miniHist} width={192} height={64} aria-hidden="true" />
@@ -523,8 +593,9 @@ export function App() {
             <Icon d="M3 4h18v16H3zM12 4v16" /> {bypass ? 'Before' : 'Before / After'}
           </button>
           {(['fit', 1, 2] as Zoom[]).map(z => (
-            <button key={z} className={'pill' + (zoom === z ? ' on' : '')} onClick={() => setZoom(z)} disabled={!cur}>{z === 'fit' ? 'Fit' : `${z * 100}%`}</button>
+            <button key={z} className={'pill' + (zoom === z ? ' on' : '')} onClick={() => { if (z === 'fit') setZoom('fit'); else { const r = stage.current!.getBoundingClientRect(); zoomAt(z, r.left + r.width / 2, r.top + r.height / 2); } }} disabled={!cur || cropping}>{z === 'fit' ? 'Fit' : `${z * 100}%`}</button>
           ))}
+          {cur && zoom !== 'fit' && <span className="zoom-pct" aria-live="polite">{Math.round(zoom * 100)}%</span>}
           <button className={'pill' + (focus ? ' on' : '')} onClick={() => setFocus(f => !f)} disabled={!cur} title="Focus mode (F)">Focus</button>
           <span className="grow" />
           <div className="stars" role="radiogroup" aria-label="Rating">
@@ -572,7 +643,7 @@ export function App() {
             onRevert={() => { update(p => syncLayers(pushStep(p, 'Revert removals', { rt: undefined }))); setRmMsg('Reverted. Undo with Ctrl+Z.'); }} />
         ) : cropping && cur ? (
           <CropPanel v={cur.v} aspect={aspect} setAspect={setAspect} angle={byKey.angle} setAngle={x => setVal('angle', x)} commit={commit}
-            reset={() => resetKeys(GEOMETRY, 'Reset crop')} done={() => setTool('edit')} />
+            reset={() => resetKeys(GEOMETRY, 'Reset crop')} done={() => setTool('edit')} turn={turn} flip={flip} />
         ) : tool === 'info' && !mobile ? (
           <InfoPanel p={cur} />
         ) : mobile && tool === 'presets' ? (
