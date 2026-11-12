@@ -609,7 +609,8 @@ export function App() {
         )}
         {mobile && cur && <>
           <canvas className="mini-hist" ref={miniHist} width={192} height={64} aria-hidden="true" />
-          <button className="pill m-compare" onClick={() => setBypass(b => !b)} aria-pressed={bypass}><Icon d="M3 4h18v16H3zM12 4v16" /> {bypass ? 'Before' : 'After'}</button>
+          <CompareButton className="pill m-compare" bypass={bypass} setBypass={setBypass} />
+          <button className={'pill m-focus' + (focus ? ' on' : '')} onClick={() => setFocus(f => !f)} aria-pressed={focus}><Icon d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /> Focus</button>
         </>}
         {focus && cur && (
           <div className="focus-enc" role="group" aria-label="Focus mode">
@@ -619,9 +620,7 @@ export function App() {
           </div>
         )}
         <div className="bottom">
-          <button className={'pill' + (bypass ? ' on' : '')} onClick={() => setBypass(b => !b)} disabled={!cur} title="Hold \ to peek">
-            <Icon d="M3 4h18v16H3zM12 4v16" /> {bypass ? 'Before' : 'Before / After'}
-          </button>
+          <CompareButton className="pill" bypass={bypass} setBypass={setBypass} disabled={!cur} label={bypass ? 'Before' : 'Before / After'} />
           {(['fit', 1, 2] as Zoom[]).map(z => (
             <button key={z} className={'pill' + (zoom === z ? ' on' : '')} onClick={() => { if (z === 'fit') setZoom('fit'); else { const r = stage.current!.getBoundingClientRect(); zoomAt(z, r.left + r.width / 2, r.top + r.height / 2); } }} disabled={!cur || cropping}>{z === 'fit' ? 'Fit' : `${z * 100}%`}</button>
           ))}
@@ -763,6 +762,25 @@ function InfoPanel({ p }: { p?: Photo }) {
       <dl>{rows.filter(([, val]) => val !== undefined && val !== '').map(([k, val]) => <div key={k}><dt>{k}</dt><dd>{val}</dd></div>)}</dl>
       {!p.raw && <p className="muted small">Camera details for JPEG/PNG aren't read yet; RAW files show full metadata.</p>}
     </section>
+  );
+}
+
+/** Tap: toggle Before/After. Hold (> 300 ms): show the original only while pressed. */
+function CompareButton({ className, bypass, setBypass, disabled, label }: { className: string; bypass: boolean; setBypass: (f: (b: boolean) => boolean) => void; disabled?: boolean; label?: string }) {
+  const t = useRef<{ timer: number; held: boolean } | null>(null);
+  const end = () => {
+    const s = t.current; t.current = null; if (!s) return;
+    clearTimeout(s.timer);
+    if (s.held) setBypass(() => false); else setBypass(b => !b);
+  };
+  return (
+    <button className={className + (bypass ? ' on' : '')} disabled={disabled} aria-pressed={bypass} title="Tap to toggle · hold to peek at the original (or hold the \ key)"
+      onPointerDown={e => { if (e.button !== 0) return; e.currentTarget.setPointerCapture(e.pointerId); t.current = { held: false, timer: window.setTimeout(() => { if (t.current) { t.current.held = true; setBypass(() => true); } }, 300) }; }}
+      onPointerUp={end} onPointerCancel={() => { if (t.current?.held) setBypass(() => false); if (t.current) clearTimeout(t.current.timer); t.current = null; }}
+      onContextMenu={e => e.preventDefault()}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setBypass(b => !b); } }}>
+      <Icon d="M3 4h18v16H3zM12 4v16" /> {label ?? (bypass ? 'Before' : 'After')}
+    </button>
   );
 }
 
