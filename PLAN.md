@@ -84,6 +84,11 @@ E2E-encrypted sync (CRDT edit log), opt-in on-device AI modules (masking, denois
 
 ---
 
+## Deploying (Vercel)
+- Install command: `npm install && npm run fetch-models`. Build command: `npm run build`.
+- `HEIRLOOM_MODELS_URL=https://github.com/AldaGs/heirloom/releases/download/models` (set for Production **and** Preview). The release `models` holds the self-built ONNX files (NAFNet, MobileSAM); MI-GAN comes from Hugging Face. Every file is sha256-checked against `scripts/fetch-models.mjs`.
+- A missing model never fails a deploy: that AI tool shows "not installed on this server" in Settings. New model versions → new release tag + updated sha256 pins.
+
 ## Open decisions
 1. Mobile fine-mode gesture: long-press vs two-finger drag (§1).
 2. Pricing model (§7) — product owner.
