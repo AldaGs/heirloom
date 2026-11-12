@@ -67,6 +67,12 @@ export async function removeAiData(path?: string) {
   await c.delete(path);
 }
 
+/** Is this model file on this server? (HEAD only, nothing downloaded; an SPA fallback page doesn't count.) */
+export async function modelInstalled(file: string) {
+  const r = await fetch(file, { method: 'HEAD' }).catch(() => null);
+  return !!r?.ok && !/text\/html/.test(r.headers.get('content-type') ?? '');
+}
+
 /** Modules that will use the gate. Status is shown in Settings so users see exactly what the switch covers. */
 export const AI_MODULES = [
   { id: 'mask', name: 'Masking', what: 'click to select any object or the sky, then adjust it' },
