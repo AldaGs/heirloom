@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fixer — Develop (desktop)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0F0F10}
+a{color:#F0A43A}a:hover{color:#FFC777}
+button{font-family:inherit;cursor:pointer}
+.enc{position:relative;border-radius:6px;cursor:ew-resize;touch-action:none;user-select:none;-webkit-user-select:none;
+background-color:#141416;
+background-image:
+linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,0) 32%,rgba(0,0,0,0) 68%,rgba(0,0,0,.6)),
+linear-gradient(90deg,rgba(9,9,10,1) 0%,rgba(9,9,10,.7) 14%,rgba(9,9,10,.15) 38%,rgba(9,9,10,0) 50%,rgba(9,9,10,.15) 62%,rgba(9,9,10,.7) 86%,rgba(9,9,10,1) 100%),
+repeating-linear-gradient(90deg,#C9C9CE 0 1px,#6E6E74 1px 2px,#202023 2px 5px),
+linear-gradient(90deg,#141416,#55555B 50%,#141416);
+box-shadow:inset 0 1px 2px rgba(0,0,0,.9),0 0 0 1px #0A0A0B,0 1px 0 rgba(255,255,255,.04)}
+.enc:hover{filter:brightness(1.12)}
+.enc:active{filter:brightness(1.25)}
+.num{width:100%;box-sizing:border-box;height:26px;padding:0 6px;border-radius:4px;border:1px solid transparent;background:transparent;color:#ECEAE6;text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px}
+.num:hover{border-color:#2A2A2F}
+.num:focus{outline:none;border-color:#F0A43A;background:#0F0F10}
+.scroll::-webkit-scrollbar{width:8px}.scroll::-webkit-scrollbar-thumb{background:#2A2A2F;border-radius:4px}
+</style>
+</helmet>
+<div style="min-height: 900px; background: #0F0F10; color: #ECEAE6; font-family: Inter, system-ui, sans-serif; font-size: 13px; display: flex; flex-direction: column">
+
+<header style="height: 48px; padding: 0 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; border-bottom: 1px solid #2A2A2F; background: #141416">
+  <div style="display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; letter-spacing: 0.02em">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F0A43A" stroke-width="1.75" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="3.5"></circle></svg>
+    Fixer
+  </div>
+  <nav aria-label="Modules" style="display: flex; gap: 4px">
+    <a href="#" style="padding: 8px 12px; border-radius: 6px; color: #9A9AA3; text-decoration: none; font-weight: 500">Library</a>
+    <a href="#" aria-current="page" style="padding: 8px 12px; border-radius: 6px; color: #ECEAE6; background: #232328; text-decoration: none; font-weight: 600">Develop</a>
+    <a href="#" style="padding: 8px 12px; border-radius: 6px; color: #9A9AA3; text-decoration: none; font-weight: 500">Export</a>
+  </nav>
+  <div style="flex: 1 1 200px; text-align: center; color: #9A9AA3; font-family: 'JetBrains Mono', monospace; font-size: 12px">DSC_2041.NEF · 6048 × 4024</div>
+  <div style="display: flex; align-items: center; gap: 8px">
+    <span style="display: flex; align-items: center; gap: 6px; color: #9A9AA3; font-size: 12px">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19 10a4 4 0 0 1-1 8z"></path><path d="M9.5 13.5l2 2 3.5-3.5"></path></svg>
+      Synced
+    </span>
+    <button aria-label="Undo" style="width: 36px; height: 36px; border-radius: 6px; border: 0; background: transparent; color: #ECEAE6; display: grid; place-items: center">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M9 14L4 9l5-5"></path><path d="M4 9h10a6 6 0 0 1 0 12h-3"></path></svg>
+    </button>
+    <button aria-label="Redo" style="width: 36px; height: 36px; border-radius: 6px; border: 0; background: transparent; color: #ECEAE6; display: grid; place-items: center">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M15 14l5-5-5-5"></path><path d="M20 9H10a6 6 0 0 0 0 12h3"></path></svg>
+    </button>
+    <button style="height: 36px; padding: 0 16px; border-radius: 6px; border: 0; background: #F0A43A; color: #1A1206; font-weight: 600">Export</button>
+  </div>
+</header>
+
+<div style="display: flex; flex-wrap: wrap; flex: 1 1 auto">
+
+  <aside class="scroll" aria-label="Navigator and presets" style="flex: 1 1 240px; max-width: 260px; height: 748px; overflow-y: auto; background: #17171A; border-right: 1px solid #2A2A2F; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 20px">
+    <section style="display: flex; flex-direction: column; gap: 8px">
+      <h2 style="margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #9A9AA3">Navigator</h2>
+      <div style="position: relative; aspect-ratio: 3 / 2; border-radius: 4px; overflow: hidden; background: #0B0B0C">
+        <svg viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice" style="position: absolute; inset: 0; width: 100%; height: 100%; filter: {{photoFilter}}" aria-hidden="true">
+          <defs><linearGradient id="nsky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22325A"></stop><stop offset="0.6" stop-color="#C9785A"></stop><stop offset="1" stop-color="#F2B27A"></stop></linearGradient></defs>
+          <rect width="1200" height="600" fill="url(#nsky)"></rect><circle cx="760" cy="470" r="60" fill="#FFD9A0"></circle>
+          <path d="M0 520 L220 360 L380 470 L560 300 L760 480 L940 340 L1200 500 L1200 600 L0 600 Z" fill="#3A3B5E"></path>
+          <rect y="560" width="1200" height="240" fill="#1A1D2E"></rect>
+        </svg>
+        <div style="position: absolute; left: 22%; top: 18%; width: 46%; height: 52%; border: 1.5px solid #ECEAE6; box-sizing: border-box"></div>
+      </div>
+    </section>
+    <section style="display: flex; flex-direction: column; gap: 4px">
+      <h2 style="margin: 0 0 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #9A9AA3">Presets</h2>
+      <sc-for list="{{presets}}" as="p" hint-placeholder-count="5">
+        <button onClick="{{p.apply}}" aria-pressed="{{p.active}}" style="height: 36px; padding: 0 8px; border-radius: 6px; border: 0; display: flex; align-items: center; gap: 10px; text-align: left; font-size: 13px; color: #ECEAE6; background: {{p.bg}}; box-shadow: {{p.shadow}}">
+          <span style="width: 28px; height: 20px; border-radius: 3px; background: {{p.swatch}}; flex: none"></span>
+          {{p.name}}
+        </button>
+      </sc-for>
+    </section>
+    <section style="display: flex; flex-direction: column; gap: 6px">
+      <h2 style="margin: 0 0 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #9A9AA3">History</h2>
+      <div style="display: flex; justify-content: space-between; color: #ECEAE6"><span>{{lastAction}}</span><span style="color: #9A9AA3">now</span></div>
+      <div style="display: flex; justify-content: space-between; color: #9A9AA3"><span>Lens profile: on</span><span>2m</span></div>
+      <div style="display: flex; justify-content: space-between; color: #9A9AA3"><span>Crop 3:2</span><span>4m</span></div>
+      <div style="display: flex; justify-content: space-between; color: #9A9AA3"><span>Import</span><span>6m</span></div>
+    </section>
+  </aside>
+
+  <main style="flex: 999 1 560px; min-width: 0; height: 748px; background: #0B0B0C; display: flex; flex-direction: column">
+    <div style="flex: 1 1 auto; display: flex; align-items: center; justify-content: center; padding: 32px; min-height: 0">
+      <div style="position: relative; width: 100%; max-width: 900px; aspect-ratio: 3 / 2; overflow: hidden; box-shadow: 0 8px 40px rgba(0,0,0,0.6)">
+        <svg viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice" style="position: absolute; inset: 0; width: 100%; height: 100%; filter: {{photoFilter}}" role="img" aria-label="Photo: mountain lake at dusk">
+          <defs>
+            <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22325A"></stop><stop offset="0.55" stop-color="#9C6170"></stop><stop offset="0.8" stop-color="#D9845E"></stop><stop offset="1" stop-color="#F2B27A"></stop></linearGradient>
+            <linearGradient id="lake" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C77D62"></stop><stop offset="0.35" stop-color="#4A4466"></stop><stop offset="1" stop-color="#121524"></stop></linearGradient>
+          </defs>
+          <rect width="1200" height="600" fill="url(#sky)"></rect>
+          <circle cx="760" cy="500" r="64" fill="#FFD9A0"></circle>
+          <path d="M0 470 L160 380 L300 430 L470 300 L600 400 L720 340 L900 430 L1060 330 L1200 400 L1200 600 L0 600 Z" fill="#6B5B78" opacity="0.85"></path>
+          <path d="M0 540 L220 380 L380 490 L560 320 L760 510 L940 370 L1200 520 L1200 600 L0 600 Z" fill="#3A3B5E"></path>
+          <path d="M0 600 L0 560 L140 520 L300 570 L520 540 L700 580 L900 545 L1200 575 L1200 600 Z" fill="#1E2236"></path>
+          <rect y="600" width="1200" height="200" fill="url(#lake)"></rect>
+          <rect x="720" y="610" width="80" height="4" fill="#FFD9A0" opacity="0.7"></rect>
+          <rect x="700" y="632" width="120" height="3" fill="#FFD9A0" opacity="0.45"></rect>
+          <rect x="735" y="652" width="50" height="3" fill="#FFD9A0" opacity="0.3"></rect>
+          <path d="M0 800 L0 720 L180 690 L360 740 L520 760 L520 800 Z" fill="#0B0D16"></path>
+        </svg>
+        <div style="position: absolute; inset: 0; mix-blend-mode: soft-light; background: {{tempColor}}; opacity: {{tempOpacity}}; pointer-events: none"></div>
+        <div style="position: absolute; inset: 0; mix-blend-mode: soft-light; background: {{tintColor}}; opacity: {{tintOpacity}}; pointer-events: none"></div>
+        <sc-if value="{{compare}}" hint-placeholder-val="{{ false }}">
+          <span style="position: absolute; left: 12px; top: 12px; padding: 4px 8px; border-radius: 4px; background: rgba(0,0,0,0.7); font-size: 11px; font-weight: 600; letter-spacing: 0.06em">BEFORE</span>
+        </sc-if>
+      </div>
+    </div>
+    <div style="height: 48px; padding: 0 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-top: 1px solid #1E1E22">
+      <button onClick="{{toggleCompare}}" aria-pressed="{{compare}}" style="height: 32px; padding: 0 12px; border-radius: 6px; border: 1px solid #2A2A2F; background: #17171A; color: #ECEAE6; display: flex; align-items: center; gap: 6px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M12 4v16"></path></svg>
+        Before / After
+      </button>
+      <div role="group" aria-label="Zoom" style="display: flex; gap: 4px">
+        <button style="height: 32px; padding: 0 10px; border-radius: 6px; border: 0; background: #232328; color: #ECEAE6">Fit</button>
+        <button style="height: 32px; padding: 0 10px; border-radius: 6px; border: 0; background: transparent; color: #9A9AA3">100%</button>
+        <button style="height: 32px; padding: 0 10px; border-radius: 6px; border: 0; background: transparent; color: #9A9AA3">200%</button>
+      </div>
+      <div style="flex: 1 1 auto"></div>
+      <div aria-label="Rating: 4 of 5 stars" role="img" style="display: flex; gap: 2px; color: #F0A43A; font-size: 14px; letter-spacing: 2px">★★★★<span style="color: #3A3A41">★</span></div>
+      <button aria-label="Flag as pick" style="width: 32px; height: 32px; border-radius: 6px; border: 0; background: transparent; color: #ECEAE6; display: grid; place-items: center">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M5 21V4h11l-2 4 2 4H5"></path></svg>
+      </button>
+    </div>
+  </main>
+
+  <aside class="scroll" aria-label="Adjustments" style="flex: 1 1 300px; max-width: 320px; height: 748px; overflow-y: auto; background: #17171A; border-left: 1px solid #2A2A2F; box-sizing: border-box">
+    <section style="padding: 16px; border-bottom: 1px solid #2A2A2F; display: flex; flex-direction: column; gap: 8px">
+      <svg viewBox="0 0 288 96" width="100%" height="96" role="img" aria-label="RGB histogram" style="background: #0F0F10; border-radius: 4px">
+        <path d="M0 96 C20 90 30 70 50 72 C70 74 80 40 100 44 C120 48 130 66 150 58 C170 50 190 20 210 30 C230 40 250 70 288 88 L288 96 Z" fill="#E0504A" opacity="0.55"></path>
+        <path d="M0 96 C25 88 40 60 60 64 C85 70 100 30 125 36 C150 42 165 60 185 50 C205 40 225 54 245 70 C260 80 275 86 288 92 L288 96 Z" fill="#4CB060" opacity="0.5"></path>
+        <path d="M0 96 C15 80 30 40 55 46 C80 52 95 70 120 64 C145 58 160 78 185 74 C210 70 240 82 288 94 L288 96 Z" fill="#4A7BE0" opacity="0.55"></path>
+      </svg>
+      <div style="display: flex; justify-content: space-between; color: #9A9AA3; font-family: 'JetBrains Mono', monospace; font-size: 11px">
+        <span>ISO 200</span><span>24 mm</span><span>ƒ/8</span><span>1/125</span>
+      </div>
+      <div role="toolbar" aria-label="Tools" style="display: flex; gap: 4px; margin-top: 4px">
+        <button aria-label="Edit" aria-pressed="true" style="flex: 1; height: 36px; border-radius: 6px; border: 0; background: #2A2A2F; color: #F0A43A; display: grid; place-items: center">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"></path><circle cx="16" cy="6" r="2"></circle><circle cx="10" cy="12" r="2"></circle><circle cx="18" cy="18" r="2"></circle></svg>
+        </button>
+        <button aria-label="Crop" style="flex: 1; height: 36px; border-radius: 6px; border: 0; background: transparent; color: #ECEAE6; display: grid; place-items: center">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M6 2v16h16"></path><path d="M2 6h16v16"></path></svg>
+        </button>
+        <button aria-label="Remove / heal" style="flex: 1; height: 36px; border-radius: 6px; border: 0; background: transparent; color: #ECEAE6; display: grid; place-items: center">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M4 20l9-9"></path><path d="M15 3l1 3 3 1-3 1-1 3-1-3-3-1 3-1z"></path></svg>
+        </button>
+        <button aria-label="Masking" style="flex: 1; height: 36px; border-radius: 6px; border: 0; background: transparent; color: #ECEAE6; display: grid; place-items: center">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"></path></svg>
+        </button>
+        <button aria-label="Red eye" style="flex: 1; height: 36px; border-radius: 6px; border: 0; background: transparent; color: #ECEAE6; display: grid; place-items: center">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+        </button>
+      </div>
+    </section>
+
+    <section style="border-bottom: 1px solid #2A2A2F">
+      <div style="display: flex; align-items: center; padding: 0 16px; height: 44px">
+        <h2 style="margin: 0; flex: 1; font-size: 13px; font-weight: 600">Basic</h2>
+        <button onClick="{{autoTone}}" style="height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid #2A2A2F; background: transparent; color: #ECEAE6; font-size: 12px">Auto</button>
+        <button onClick="{{resetAll}}" style="height: 28px; padding: 0 10px; margin-left: 6px; border-radius: 6px; border: 0; background: transparent; color: #9A9AA3; font-size: 12px">Reset</button>
+      </div>
+      <div style="padding: 0 16px 16px; display: flex; flex-direction: column; gap: 4px">
+        <div style="font-size: 11px; color: #9A9AA3; letter-spacing: 0.06em; text-transform: uppercase; margin: 4px 0">White balance · As shot</div>
+        <sc-for list="{{wb}}" as="s" hint-placeholder-count="2">
+          <div style="display: grid; grid-template-columns: 80px 1fr 56px; align-items: center; gap: 10px; min-height: 32px">
+            <label for="{{s.id}}" style="color: #C9C7C2">{{s.label}}</label>
+            <div style="display: flex; flex-direction: column; gap: 4px">
+              <div class="enc" aria-hidden="true" title="Drag to turn · Shift for fine · double-click to reset" onPointerDown="{{s.down}}" onPointerMove="{{s.move}}" onPointerUp="{{s.up}}" onPointerCancel="{{s.up}}" onDoubleClick="{{s.reset}}" style="height: 20px; background-position: 0 0, 0 0, {{s.off}}px 0, 0 0"></div>
+              <div style="position: relative; height: 2px; border-radius: 1px; background: {{s.track}}">
+                <div style="position: absolute; top: 0; bottom: 0; left: {{s.fillL}}%; width: {{s.fillW}}%; background: {{s.fillColor}}; border-radius: 1px"></div>
+              </div>
+            </div>
+            <input id="{{s.id}}" class="num" type="text" inputMode="decimal" value="{{s.text}}" onChange="{{s.onText}}" onBlur="{{s.onBlur}}" onKeyDown="{{s.onKey}}">
+          </div>
+        </sc-for>
+        <div style="font-size: 11px; color: #9A9AA3; letter-spacing: 0.06em; text-transform: uppercase; margin: 12px 0 4px">Tone</div>
+        <sc-for list="{{tone}}" as="s" hint-placeholder-count="6">
+          <div style="display: grid; grid-template-columns: 80px 1fr 56px; align-items: center; gap: 10px; min-height: 32px">
+            <label for="{{s.id}}" style="color: #C9C7C2">{{s.label}}</label>
+            <div style="display: flex; flex-direction: column; gap: 4px">
+              <div class="enc" aria-hidden="true" title="Drag to turn · Shift for fine · double-click to reset" onPointerDown="{{s.down}}" onPointerMove="{{s.move}}" onPointerUp="{{s.up}}" onPointerCancel="{{s.up}}" onDoubleClick="{{s.reset}}" style="height: 20px; background-position: 0 0, 0 0, {{s.off}}px 0, 0 0"></div>
+              <div style="position: relative; height: 2px; border-radius: 1px; background: {{s.track}}">
+                <div style="position: absolute; top: 0; bottom: 0; left: {{s.fillL}}%; width: {{s.fillW}}%; background: {{s.fillColor}}; border-radius: 1px"></div>
+              </div>
+            </div>
+            <input id="{{s.id}}" class="num" type="text" inputMode="decimal" value="{{s.text}}" onChange="{{s.onText}}" onBlur="{{s.onBlur}}" onKeyDown="{{s.onKey}}">
+          </div>
+        </sc-for>
+        <div style="font-size: 11px; color: #9A9AA3; letter-spacing: 0.06em; text-transform: uppercase; margin: 12px 0 4px">Presence</div>
+        <sc-for list="{{presence}}" as="s" hint-placeholder-count="5">
+          <div style="display: grid; grid-template-columns: 80px 1fr 56px; align-items: center; gap: 10px; min-height: 32px">
+            <label for="{{s.id}}" style="color: #C9C7C2">{{s.label}}</label>
+            <div style="display: flex; flex-direction: column; gap: 4px">
+              <div class="enc" aria-hidden="true" title="Drag to turn · Shift for fine · double-click to reset" onPointerDown="{{s.down}}" onPointerMove="{{s.move}}" onPointerUp="{{s.up}}" onPointerCancel="{{s.up}}" onDoubleClick="{{s.reset}}" style="height: 20px; background-position: 0 0, 0 0, {{s.off}}px 0, 0 0"></div>
+              <div style="position: relative; height: 2px; border-radius: 1px; background: {{s.track}}">
+                <div style="position: absolute; top: 0; bottom: 0; left: {{s.fillL}}%; width: {{s.fillW}}%; background: {{s.fillColor}}; border-radius: 1px"></div>
+              </div>
+            </div>
+            <input id="{{s.id}}" class="num" type="text" inputMode="decimal" value="{{s.text}}" onChange="{{s.onText}}" onBlur="{{s.onBlur}}" onKeyDown="{{s.onKey}}">
+          </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <section style="border-bottom: 1px solid #2A2A2F">
+      <button onClick="{{toggleCurve}}" aria-expanded="{{curveOpen}}" style="width: 100%; height: 44px; padding: 0 16px; border: 0; background: transparent; color: #ECEAE6; display: flex; align-items: center; font-size: 13px; font-weight: 600">
+        <span style="flex: 1; text-align: left">Tone Curve</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9A9AA3" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+      </button>
+      <sc-if value="{{curveOpen}}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 0 16px 16px">
+          <svg viewBox="0 0 200 200" width="100%" height="200" role="img" aria-label="Tone curve, gentle S shape" style="background: #0F0F10; border-radius: 4px">
+            <path d="M50 0V200M100 0V200M150 0V200M0 50H200M0 100H200M0 150H200" stroke="#232328" stroke-width="1"></path>
+            <path d="M0 200 L200 0" stroke="#3A3A41" stroke-width="1" stroke-dasharray="3 3"></path>
+            <path d="M0 196 C60 178 70 120 100 100 C130 80 140 22 200 4" stroke="#ECEAE6" stroke-width="1.75" fill="none"></path>
+            <circle cx="52" cy="160" r="4" fill="#F0A43A"></circle><circle cx="148" cy="40" r="4" fill="#F0A43A"></circle>
+          </svg>
+        </div>
+      </sc-if>
+    </section>
+    <sc-for list="{{collapsed}}" as="c" hint-placeholder-count="5">
+      <button aria-expanded="false" style="width: 100%; height: 44px; padding: 0 16px; border: 0; border-bottom: 1px solid #2A2A2F; background: transparent; color: #ECEAE6; display: flex; align-items: center; font-size: 13px; font-weight: 600">
+        <span style="flex: 1; text-align: left">{{c}}</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9A9AA3" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+      </button>
+    </sc-for>
+  </aside>
+</div>
+
+<div aria-label="Filmstrip" style="height: 104px; box-sizing: border-box; border-top: 1px solid #2A2A2F; background: #141416; padding: 12px 16px; display: flex; gap: 8px; overflow-x: auto">
+  <sc-for list="{{film}}" as="f" hint-placeholder-count="12">
+    <button aria-label="{{f.label}}" style="flex: none; width: 120px; height: 80px; border-radius: 4px; padding: 0; background: {{f.bg}}; border: 2px solid {{f.border}}; opacity: {{f.opacity}}"></button>
+  </sc-for>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+var FX_SLIDERS = [
+  { k: 'temp', label: 'Temp', min: 2000, max: 12000, step: 50, def: 5500, cls: 'rng temp', g: 'wb' },
+  { k: 'tint', label: 'Tint', min: -150, max: 150, step: 1, def: 0, cls: 'rng tint', g: 'wb' },
+  { k: 'exposure', label: 'Exposure', min: -5, max: 5, step: 0.05, def: 0, g: 'tone' },
+  { k: 'contrast', label: 'Contrast', min: -100, max: 100, step: 1, def: 0, g: 'tone' },
+  { k: 'highlights', label: 'Highlights', min: -100, max: 100, step: 1, def: 0, g: 'tone' },
+  { k: 'shadows', label: 'Shadows', min: -100, max: 100, step: 1, def: 0, g: 'tone' },
+  { k: 'whites', label: 'Whites', min: -100, max: 100, step: 1, def: 0, g: 'tone' },
+  { k: 'blacks', label: 'Blacks', min: -100, max: 100, step: 1, def: 0, g: 'tone' },
+  { k: 'texture', label: 'Texture', min: -100, max: 100, step: 1, def: 0, g: 'presence' },
+  { k: 'clarity', label: 'Clarity', min: -100, max: 100, step: 1, def: 0, g: 'presence' },
+  { k: 'dehaze', label: 'Dehaze', min: -100, max: 100, step: 1, def: 0, g: 'presence' },
+  { k: 'vibrance', label: 'Vibrance', min: -100, max: 100, step: 1, def: 0, g: 'presence' },
+  { k: 'saturation', label: 'Saturation', min: -100, max: 100, step: 1, def: 0, g: 'presence' }
+];
+var FX_PRESETS = [
+  { name: 'Original', swatch: '#6B5B78', v: {} },
+  { name: 'Warm Film', swatch: '#D9845E', v: { temp: 6800, exposure: 0.2, contrast: -10, shadows: 25, blacks: 15, vibrance: 15 } },
+  { name: 'Cool Matte', swatch: '#4A7BA8', v: { temp: 4300, tint: 8, contrast: -25, blacks: 35, saturation: -15 } },
+  { name: 'Punchy', swatch: '#C44F5A', v: { contrast: 35, clarity: 25, dehaze: 15, vibrance: 30, highlights: -30, shadows: 20 } },
+  { name: 'Mono', swatch: '#8A8A8A', v: { saturation: -100, contrast: 40, clarity: 20 } }
+];
+var FX_TRACK = { temp: 'linear-gradient(90deg,#3C7BE0,#D9D3C7,#E8A03A)', tint: 'linear-gradient(90deg,#3FA45B,#D9D3C7,#C44FB5)' };
+var FX_SENS = 320, FX_TRAVEL = 480;
+function fxRound(s, x) {
+  x = Math.min(s.max, Math.max(s.min, x));
+  x = Math.round(x / s.step) * s.step;
+  return s.step < 1 ? parseFloat(x.toFixed(2)) : Math.round(x);
+}
+function fxDefaults() { var o = {}; FX_SLIDERS.forEach(function (s) { o[s.k] = s.def; }); return o; }
+function fxFilter(v) {
+  var br = Math.pow(2, v.exposure * 0.6) * (1 + (v.whites * 0.3 + v.highlights * 0.2 + v.shadows * 0.25 + v.blacks * 0.15) / 200);
+  var ct = 1 + v.contrast / 100 + v.clarity / 300 + v.dehaze / 200 + v.texture / 600;
+  var sat = Math.max(0, 1 + v.saturation / 100 + v.vibrance / 160 + v.dehaze / 400);
+  return 'brightness(' + br.toFixed(3) + ') contrast(' + ct.toFixed(3) + ') saturate(' + sat.toFixed(3) + ')';
+}
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { v: fxDefaults(), compare: false, curveOpen: false, preset: 'Original', last: 'Opened in Develop', edit: null }; this._drag = null; }
+  renderVals() {
+    var self = this, v = this.state.v, cmp = this.state.compare;
+    function fmt(s, x) {
+      if (s.k === 'temp') return String(x);
+      if (s.k === 'exposure') return (x > 0 ? '+' : '') + Number(x).toFixed(2);
+      return (x > 0 ? '+' : '') + x;
+    }
+    function setVal(s, x, extra) {
+      var nv = Object.assign({}, self.state.v); nv[s.k] = fxRound(s, x);
+      self.setState(Object.assign({ v: nv, preset: '', last: s.label + ' ' + fmt(s, nv[s.k]) }, extra || {}));
+    }
+    var ed = this.state.edit;
+    function mk(g) {
+      return FX_SLIDERS.filter(function (s) { return s.g === g; }).map(function (s) {
+        var val = v[s.k], span = s.max - s.min, n = (val - s.min) / span, c = (s.def - s.min) / span;
+        return { id: 'd-' + s.k, label: s.label,
+          off: Math.round(n * FX_TRAVEL), track: FX_TRACK[s.k] || '#2A2A2F', fillColor: FX_TRACK[s.k] ? '#ECEAE6' : '#F0A43A',
+          fillL: (Math.min(n, c) * 100).toFixed(2), fillW: Math.max(Math.abs(n - c) * 100, FX_TRACK[s.k] ? 1 : 0).toFixed(2),
+          text: ed && ed.k === s.k ? ed.text : fmt(s, val),
+          down: function (e) { try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {} self._drag = { k: s.k, x: e.clientX, v0: self.state.v[s.k] }; },
+          move: function (e) {
+            var d = self._drag; if (!d || d.k !== s.k) return;
+            var nx = fxRound(s, d.v0 + (e.clientX - d.x) * span / (e.shiftKey ? FX_SENS * 5 : FX_SENS));
+            if (nx !== self.state.v[s.k]) setVal(s, nx);
+          },
+          up: function () { self._drag = null; },
+          reset: function () { setVal(s, s.def); },
+          onText: function (e) { var t = e.target.value, num = parseFloat(t); if (isNaN(num)) self.setState({ edit: { k: s.k, text: t } }); else setVal(s, num, { edit: { k: s.k, text: t } }); },
+          onBlur: function () { self.setState({ edit: null }); },
+          onKey: function (e) {
+            if (e.key === 'Enter') { e.target.blur(); return; }
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); var m = e.shiftKey ? 10 : 1; setVal(s, self.state.v[s.k] + (e.key === 'ArrowUp' ? 1 : -1) * s.step * m, { edit: null }); }
+          } };
+      });
+    }
+    var warm = (v.temp - 5500) / 6500, tn = v.tint / 150;
+    var thumbs = ['#22325A,#D9845E','#3A5F4A,#C9B27A','#2A2A3A,#8A6A9A','#5A7BA8,#E8D9C0','#1E1E22,#6B6B70','#7A3A2A,#E0A060','#2F4F6F,#9FC0D0','#4A3A2A,#C08A5A','#203040,#5070A0','#5A4A6A,#E0B0A0','#2A3A2A,#90A070','#3A2A3A,#D06070'];
+    return {
+      photoFilter: cmp ? 'none' : fxFilter(v),
+      tempColor: warm > 0 ? '#FF9A3C' : '#3C8CFF', tempOpacity: cmp ? 0 : Math.min(1, Math.abs(warm) * 1.2).toFixed(2),
+      tintColor: tn > 0 ? '#E040C0' : '#30C050', tintOpacity: cmp ? 0 : Math.min(1, Math.abs(tn) * 0.8).toFixed(2),
+      compare: cmp, curveOpen: this.state.curveOpen, lastAction: this.state.last,
+      toggleCompare: function () { self.setState({ compare: !self.state.compare }); },
+      toggleCurve: function () { self.setState({ curveOpen: !self.state.curveOpen }); },
+      resetAll: function () { self.setState({ v: fxDefaults(), preset: 'Original', last: 'Reset all' }); },
+      autoTone: function () { self.setState({ v: Object.assign(fxDefaults(), { temp: self.state.v.temp, tint: self.state.v.tint, exposure: 0.35, contrast: 12, highlights: -42, shadows: 38, whites: 18, blacks: -12, vibrance: 10 }), preset: '', last: 'Auto tone' }); },
+      wb: mk('wb'), tone: mk('tone'), presence: mk('presence'),
+      collapsed: ['Color Mixer', 'Color Grading', 'Detail', 'Optics', 'Geometry', 'Effects', 'Calibration'],
+      presets: FX_PRESETS.map(function (p) {
+        var on = self.state.preset === p.name;
+        return { name: p.name, swatch: p.swatch, active: on ? 'true' : 'false',
+          bg: on ? '#2A2A2F' : 'transparent', shadow: on ? 'inset 2px 0 0 #F0A43A' : 'none',
+          apply: function () { self.setState({ v: Object.assign(fxDefaults(), p.v), preset: p.name, last: 'Preset: ' + p.name }); } };
+      }),
+      film: thumbs.map(function (c, i) {
+        return { label: 'Photo ' + (i + 1) + (i === 0 ? ' (current)' : ''),
+          bg: 'linear-gradient(180deg,' + c + ')', border: i === 0 ? '#F0A43A' : 'transparent', opacity: i === 0 ? 1 : 0.75 };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

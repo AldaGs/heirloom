@@ -1,0 +1,10 @@
+{
+  "name": "Heirloom",
+  "short_name": "Heirloom",
+  "description": "Local-first raw photo developer",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0F0F10",
+  "theme_color": "#141416",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

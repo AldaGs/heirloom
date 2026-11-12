@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fixer — Develop (mobile)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0F0F10}
+a{color:#F0A43A}a:hover{color:#FFC777}
+button{font-family:inherit;cursor:pointer}
+.enc{position:relative;border-radius:8px;cursor:ew-resize;touch-action:none;user-select:none;-webkit-user-select:none;
+background-color:#141416;
+background-image:
+linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,0) 32%,rgba(0,0,0,0) 68%,rgba(0,0,0,.6)),
+linear-gradient(90deg,rgba(9,9,10,1) 0%,rgba(9,9,10,.7) 14%,rgba(9,9,10,.15) 38%,rgba(9,9,10,0) 50%,rgba(9,9,10,.15) 62%,rgba(9,9,10,.7) 86%,rgba(9,9,10,1) 100%),
+repeating-linear-gradient(90deg,#C9C9CE 0 1.5px,#6E6E74 1.5px 2.5px,#202023 2.5px 6px),
+linear-gradient(90deg,#141416,#55555B 50%,#141416);
+box-shadow:inset 0 1px 2px rgba(0,0,0,.9),0 0 0 1px #0A0A0B,0 1px 0 rgba(255,255,255,.04)}
+.enc:active{filter:brightness(1.25)}
+.num{width:72px;box-sizing:border-box;height:32px;padding:0 8px;border-radius:6px;border:1px solid #2A2A2F;background:transparent;color:#ECEAE6;text-align:right;font-family:'JetBrains Mono',monospace;font-size:13px}
+.num:focus{outline:none;border-color:#F0A43A;background:#0B0B0C}
+.chips::-webkit-scrollbar{display:none}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; background: #0F0F10; color: #ECEAE6; font-family: Inter, system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column; overflow: hidden">
+
+<header style="height: 56px; flex: none; padding: 0 8px; display: flex; align-items: center; gap: 4px">
+  <a href="MobileLibrary.dc.html" aria-label="Back to library" style="width: 44px; height: 44px; display: grid; place-items: center; color: #ECEAE6">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+  </a>
+  <div style="flex: 1; min-width: 0">
+    <div style="font-weight: 600; font-size: 15px">DSC_2041</div>
+    <div style="color: #9A9AA3; font-size: 11px; font-family: 'JetBrains Mono', monospace">RAW · ƒ/8 · 1/125 · ISO 200</div>
+  </div>
+  <button aria-label="Undo" style="width: 44px; height: 44px; border: 0; background: transparent; color: #ECEAE6; display: grid; place-items: center">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M9 14L4 9l5-5"></path><path d="M4 9h10a6 6 0 0 1 0 12h-3"></path></svg>
+  </button>
+  <button aria-label="Export or share" style="width: 44px; height: 44px; border: 0; background: transparent; color: #F0A43A; display: grid; place-items: center">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 8l5-5 5 5"></path><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"></path></svg>
+  </button>
+</header>
+
+<div style="position: relative; height: 340px; flex: none; background: #0B0B0C; overflow: hidden">
+  <svg viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice" style="position: absolute; inset: 0; width: 100%; height: 100%; filter: {{photoFilter}}" role="img" aria-label="Photo: mountain lake at dusk">
+    <defs>
+      <linearGradient id="msky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22325A"></stop><stop offset="0.55" stop-color="#9C6170"></stop><stop offset="0.8" stop-color="#D9845E"></stop><stop offset="1" stop-color="#F2B27A"></stop></linearGradient>
+      <linearGradient id="mlake" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C77D62"></stop><stop offset="0.35" stop-color="#4A4466"></stop><stop offset="1" stop-color="#121524"></stop></linearGradient>
+    </defs>
+    <rect width="1200" height="600" fill="url(#msky)"></rect>
+    <circle cx="760" cy="500" r="64" fill="#FFD9A0"></circle>
+    <path d="M0 470 L160 380 L300 430 L470 300 L600 400 L720 340 L900 430 L1060 330 L1200 400 L1200 600 L0 600 Z" fill="#6B5B78" opacity="0.85"></path>
+    <path d="M0 540 L220 380 L380 490 L560 320 L760 510 L940 370 L1200 520 L1200 600 L0 600 Z" fill="#3A3B5E"></path>
+    <path d="M0 600 L0 560 L140 520 L300 570 L520 540 L700 580 L900 545 L1200 575 L1200 600 Z" fill="#1E2236"></path>
+    <rect y="600" width="1200" height="200" fill="url(#mlake)"></rect>
+    <rect x="720" y="610" width="80" height="4" fill="#FFD9A0" opacity="0.7"></rect>
+    <rect x="700" y="632" width="120" height="3" fill="#FFD9A0" opacity="0.45"></rect>
+    <path d="M0 800 L0 720 L180 690 L360 740 L520 760 L520 800 Z" fill="#0B0D16"></path>
+  </svg>
+  <div style="position: absolute; inset: 0; mix-blend-mode: soft-light; background: {{tempColor}}; opacity: {{tempOpacity}}; pointer-events: none"></div>
+  <div style="position: absolute; inset: 0; mix-blend-mode: soft-light; background: {{tintColor}}; opacity: {{tintOpacity}}; pointer-events: none"></div>
+  <button onClick="{{toggleCompare}}" aria-pressed="{{compare}}" style="position: absolute; right: 12px; bottom: 12px; height: 36px; padding: 0 12px; border-radius: 18px; border: 0; background: rgba(15,15,16,0.8); color: #ECEAE6; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M12 4v16"></path></svg>
+    {{compareLabel}}
+  </button>
+  <svg viewBox="0 0 120 40" width="96" height="32" aria-hidden="true" style="position: absolute; left: 12px; bottom: 12px; background: rgba(15,15,16,0.7); border-radius: 6px">
+    <path d="M0 40 C10 36 15 20 30 22 C45 24 50 10 65 14 C80 18 90 30 120 36 L120 40 Z" fill="#ECEAE6" opacity="0.6"></path>
+  </svg>
+</div>
+
+<div style="flex: 1 1 auto; overflow-y: auto; display: flex; flex-direction: column">
+  <div style="flex: none; height: 48px; padding: 0 12px 0 20px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #1E1E22">
+    <span style="flex: 1; font-size: 11px; color: #9A9AA3; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600">Adjustments</span>
+    <button onClick="{{autoTone}}" style="height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid #2A2A2F; background: transparent; color: #ECEAE6; font-size: 12px; font-weight: 600">Auto</button>
+    <button onClick="{{resetAll}}" style="height: 32px; padding: 0 10px; border-radius: 16px; border: 0; background: transparent; color: #9A9AA3; font-size: 12px; font-weight: 600">Reset</button>
+  </div>
+  <sc-for list="{{groups}}" as="g" hint-placeholder-count="5">
+    <section style="border-bottom: 1px solid #1E1E22">
+      <button onClick="{{g.toggle}}" aria-expanded="{{g.expanded}}" aria-controls="{{g.panelId}}" style="width: 100%; height: 52px; padding: 0 16px 0 20px; border: 0; background: transparent; color: #ECEAE6; display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600">
+        <span style="flex: 1; text-align: left">{{g.name}}</span>
+        <span style="font-size: 12px; font-weight: 500; color: {{g.summaryColor}}">{{g.summary}}</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A9AA3" stroke-width="2" aria-hidden="true" style="transform: rotate({{g.rot}}deg); transition: transform 160ms ease"><path d="M6 9l6 6 6-6"></path></svg>
+      </button>
+      <sc-if value="{{g.open}}" hint-placeholder-val="{{ false }}">
+        <div id="{{g.panelId}}" style="padding: 0 20px 12px; display: flex; flex-direction: column; gap: 2px">
+          <sc-for list="{{g.sliders}}" as="s" hint-placeholder-count="4">
+            <div style="display: flex; flex-direction: column; gap: 6px; padding: 6px 0">
+              <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13px">
+                <label for="{{s.id}}" style="color: #C9C7C2">{{s.label}}</label>
+                <input id="{{s.id}}" class="num" type="text" inputMode="decimal" value="{{s.text}}" onChange="{{s.onText}}" onBlur="{{s.onBlur}}" onKeyDown="{{s.onKey}}">
+              </div>
+              <div class="enc" aria-hidden="true" onPointerDown="{{s.down}}" onPointerMove="{{s.move}}" onPointerUp="{{s.up}}" onPointerCancel="{{s.up}}" onDoubleClick="{{s.reset}}" style="height: 34px; background-position: 0 0, 0 0, {{s.off}}px 0, 0 0"></div>
+              <div style="position: relative; height: 2px; border-radius: 1px; background: {{s.track}}">
+                <div style="position: absolute; top: 0; bottom: 0; left: {{s.fillL}}%; width: {{s.fillW}}%; background: {{s.fillColor}}; border-radius: 1px"></div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+    </section>
+  </sc-for>
+</div>
+
+<nav aria-label="Edit tools" style="height: 76px; flex: none; display: flex; justify-content: space-around; align-items: flex-start; padding-top: 8px; box-sizing: border-box; border-top: 1px solid #2A2A2F; background: #141416">
+  <button style="width: 64px; height: 52px; border: 0; background: transparent; color: #9A9AA3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 11px">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="1"></rect><rect x="13" y="3" width="8" height="8" rx="1"></rect><rect x="3" y="13" width="8" height="8" rx="1"></rect><rect x="13" y="13" width="8" height="8" rx="1"></rect></svg>
+    Presets
+  </button>
+  <button style="width: 64px; height: 52px; border: 0; background: transparent; color: #9A9AA3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 11px">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M6 2v16h16"></path><path d="M2 6h16v16"></path></svg>
+    Crop
+  </button>
+  <button aria-current="true" style="width: 64px; height: 52px; border: 0; background: transparent; color: #F0A43A; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 11px; font-weight: 600">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"></path><circle cx="16" cy="6" r="2"></circle><circle cx="10" cy="12" r="2"></circle><circle cx="18" cy="18" r="2"></circle></svg>
+    Edit
+  </button>
+  <button style="width: 64px; height: 52px; border: 0; background: transparent; color: #9A9AA3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 11px">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"></path></svg>
+    Masking
+  </button>
+  <button style="width: 64px; height: 52px; border: 0; background: transparent; color: #9A9AA3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 11px">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M4 20l9-9"></path><path d="M15 3l1 3 3 1-3 1-1 3-1-3-3-1 3-1z"></path></svg>
+    Remove
+  </button>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+var FX_SLIDERS = [
+  { k: 'exposure', label: 'Exposure', min: -5, max: 5, step: 0.05, def: 0, g: 'Light' },
+  { k: 'contrast', label: 'Contrast', min: -100, max: 100, step: 1, def: 0, g: 'Light' },
+  { k: 'highlights', label: 'Highlights', min: -100, max: 100, step: 1, def: 0, g: 'Light' },
+  { k: 'shadows', label: 'Shadows', min: -100, max: 100, step: 1, def: 0, g: 'Light' },
+  { k: 'whites', label: 'Whites', min: -100, max: 100, step: 1, def: 0, g: 'Light' },
+  { k: 'blacks', label: 'Blacks', min: -100, max: 100, step: 1, def: 0, g: 'Light' },
+  { k: 'temp', label: 'Temp', min: 2000, max: 12000, step: 50, def: 5500, cls: 'rng temp', g: 'Color' },
+  { k: 'tint', label: 'Tint', min: -150, max: 150, step: 1, def: 0, cls: 'rng tint', g: 'Color' },
+  { k: 'vibrance', label: 'Vibrance', min: -100, max: 100, step: 1, def: 0, g: 'Color' },
+  { k: 'saturation', label: 'Saturation', min: -100, max: 100, step: 1, def: 0, g: 'Color' },
+  { k: 'texture', label: 'Texture', min: -100, max: 100, step: 1, def: 0, g: 'Effects' },
+  { k: 'clarity', label: 'Clarity', min: -100, max: 100, step: 1, def: 0, g: 'Effects' },
+  { k: 'dehaze', label: 'Dehaze', min: -100, max: 100, step: 1, def: 0, g: 'Effects' },
+  { k: 'vignette', label: 'Vignette', min: -100, max: 100, step: 1, def: 0, g: 'Effects' },
+  { k: 'grain', label: 'Grain', min: 0, max: 100, step: 1, def: 0, g: 'Effects' },
+  { k: 'sharpen', label: 'Sharpening', min: 0, max: 150, step: 1, def: 40, g: 'Detail' },
+  { k: 'noise', label: 'Noise Reduction', min: 0, max: 100, step: 1, def: 0, g: 'Detail' },
+  { k: 'distortion', label: 'Distortion', min: -100, max: 100, step: 1, def: 0, g: 'Optics' },
+  { k: 'defringe', label: 'Defringe', min: 0, max: 20, step: 1, def: 0, g: 'Optics' }
+];
+var FX_CATS = ['Light', 'Color', 'Effects', 'Detail', 'Optics'];
+var FX_TRACK = { temp: 'linear-gradient(90deg,#3C7BE0,#D9D3C7,#E8A03A)', tint: 'linear-gradient(90deg,#3FA45B,#D9D3C7,#C44FB5)' };
+var FX_SENS = 520, FX_TRAVEL = 720;
+function fxRound(s, x) {
+  x = Math.min(s.max, Math.max(s.min, x));
+  x = Math.round(x / s.step) * s.step;
+  return s.step < 1 ? parseFloat(x.toFixed(2)) : Math.round(x);
+}
+function fxDefaults() { var o = {}; FX_SLIDERS.forEach(function (s) { o[s.k] = s.def; }); return o; }
+function fxFilter(v) {
+  var br = Math.pow(2, v.exposure * 0.6) * (1 + (v.whites * 0.3 + v.highlights * 0.2 + v.shadows * 0.25 + v.blacks * 0.15) / 200);
+  var ct = 1 + v.contrast / 100 + v.clarity / 300 + v.dehaze / 200 + v.texture / 600;
+  var sat = Math.max(0, 1 + v.saturation / 100 + v.vibrance / 160 + v.dehaze / 400);
+  return 'brightness(' + br.toFixed(3) + ') contrast(' + ct.toFixed(3) + ') saturate(' + sat.toFixed(3) + ')';
+}
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { v: fxDefaults(), compare: false, open: 'Light', edit: null }; this._drag = null; }
+  renderVals() {
+    var self = this, v = this.state.v, cmp = this.state.compare, openG = this.state.open;
+    function fmt(s, x) {
+      if (s.k === 'temp') return String(x);
+      if (s.k === 'exposure') return (x > 0 ? '+' : '') + Number(x).toFixed(2);
+      if (s.min >= 0) return String(x);
+      return (x > 0 ? '+' : '') + x;
+    }
+    var defs = fxDefaults();
+    var warm = (v.temp - 5500) / 6500, tn = v.tint / 150;
+    return {
+      photoFilter: cmp ? 'none' : fxFilter(v),
+      tempColor: warm > 0 ? '#FF9A3C' : '#3C8CFF', tempOpacity: cmp ? 0 : Math.min(1, Math.abs(warm) * 1.2).toFixed(2),
+      tintColor: tn > 0 ? '#E040C0' : '#30C050', tintOpacity: cmp ? 0 : Math.min(1, Math.abs(tn) * 0.8).toFixed(2),
+      compare: cmp, compareLabel: cmp ? 'Before' : 'After',
+      toggleCompare: function () { self.setState({ compare: !self.state.compare }); },
+      autoTone: function () { self.setState({ v: Object.assign({}, self.state.v, { exposure: 0.35, contrast: 12, highlights: -42, shadows: 38, whites: 18, blacks: -12, vibrance: 10 }), open: 'Light' }); },
+      resetAll: function () { self.setState({ v: fxDefaults() }); },
+      groups: FX_CATS.map(function (c) {
+        var on = c === openG;
+        var list = FX_SLIDERS.filter(function (s) { return s.g === c; });
+        var changed = list.filter(function (s) { return v[s.k] !== defs[s.k]; }).length;
+        return { name: c, open: on, expanded: on ? 'true' : 'false', rot: on ? 180 : 0, panelId: 'grp-' + c.toLowerCase(),
+          summary: changed ? changed + ' edited' : '', summaryColor: '#F0A43A',
+          toggle: function () { self.setState({ open: self.state.open === c ? '' : c }); },
+          sliders: list.map(function (s) {
+            var val = v[s.k], span = s.max - s.min, n = (val - s.min) / span, cc = (s.def - s.min) / span, ed = self.state.edit;
+            function setVal(x, extra) { var nv = Object.assign({}, self.state.v); nv[s.k] = fxRound(s, x); self.setState(Object.assign({ v: nv }, extra || {})); }
+            return { id: 'm-' + s.k, label: s.label,
+              off: Math.round(n * FX_TRAVEL), track: FX_TRACK[s.k] || '#2A2A2F', fillColor: FX_TRACK[s.k] ? '#ECEAE6' : '#F0A43A',
+              fillL: (Math.min(n, cc) * 100).toFixed(2), fillW: Math.max(Math.abs(n - cc) * 100, FX_TRACK[s.k] ? 1 : 0).toFixed(2),
+              text: ed && ed.k === s.k ? ed.text : fmt(s, val),
+              down: function (e) { try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {} self._drag = { k: s.k, x: e.clientX, v0: self.state.v[s.k] }; },
+              move: function (e) {
+                var d = self._drag; if (!d || d.k !== s.k) return;
+                var nx = fxRound(s, d.v0 + (e.clientX - d.x) * span / FX_SENS);
+                if (nx !== self.state.v[s.k]) setVal(nx);
+              },
+              up: function () { self._drag = null; },
+              reset: function () { setVal(s.def); },
+              onText: function (e) { var t = e.target.value, num = parseFloat(t); if (isNaN(num)) self.setState({ edit: { k: s.k, text: t } }); else setVal(num, { edit: { k: s.k, text: t } }); },
+              onBlur: function () { self.setState({ edit: null }); },
+              onKey: function (e) { if (e.key === 'Enter') e.target.blur(); } };
+          }) };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>
