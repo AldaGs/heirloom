@@ -286,14 +286,16 @@ h4 { margin: 16px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .08e
 @media (max-width: 700px) { .crop-h { width: 36px; height: 36px; } .crop-h::after { inset: 12px; } .crop-panel { padding: 0 16px 16px; } }
 
 /* Batch dialogs (Phase 7) */
-.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: grid; place-items: center; z-index: 50; padding: 16px; }
+.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; z-index: 50; padding: 16px; }
 .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; width: min(760px, 100%); max-height: 100%; display: flex; flex-direction: column; }
 .modal-head, .modal-foot { display: flex; align-items: center; gap: 8px; padding: 10px 16px; }
 .modal-head { border-bottom: 1px solid var(--border); } .modal-head h3 { flex: 1; margin: 0; font-size: 14px; }
 .modal-foot { border-top: 1px solid var(--border); } .modal-foot .grow, .modal .grow { flex: 1; }
 .modal-body { padding: 16px; overflow: auto; }
 .form { display: grid; gap: 10px; max-width: 420px; }
-.form label { display: grid; grid-template-columns: 170px 1fr; align-items: center; gap: 8px; color: var(--text-2); }
+.form label { display: grid; grid-template-columns: minmax(0, 170px) minmax(0, 1fr); align-items: center; gap: 8px; color: var(--text-2); }
+.form input, .form select { min-width: 0; width: 100%; }
+.modal { min-width: 0; } .modal-foot { flex-wrap: wrap; }
 .form input, .form select, .lib-import select { background: var(--bar); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font: inherit; min-height: 32px; }
 .form .row { display: flex; gap: 8px; }
 .report { margin-top: 16px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
@@ -357,4 +359,19 @@ h4 { margin: 16px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .08e
   /* the menu spans the bar (anchored to .lib-head, which is sticky) instead of hanging off its button */
   .lib-more { position: static; }
   .lib-more-menu { left: 12px; right: 12px; top: 100%; min-width: 0; max-width: none; }
+}
+
+@media (max-width: 700px) {
+  .modal-bg { padding: 8px; }
+  .modal { max-height: calc(100dvh - 16px); }
+  .form label { grid-template-columns: minmax(0, 1fr); gap: 4px; } /* label above its field */
+  .form input, .form select { min-height: 44px; }
+  .modal-foot .primary, .modal-foot .ghost { min-height: 44px; }
+  .m-focus { position: absolute; right: 12px; bottom: 56px; z-index: 2; height: 36px; border-radius: 18px; background: rgba(15,15,16,.8); color: var(--text); font-weight: 600; font-size: 12px; }
+}
+@media (max-width: 700px) {
+  /* Focus mode: the floating encoder owns the bottom, so the histogram and pills move to the top */
+  .app.focus .mini-hist { top: 12px; bottom: auto; }
+  .app.focus .m-compare { top: 12px; bottom: auto; }
+  .app.focus .m-focus { top: 56px; bottom: auto; }
 }
