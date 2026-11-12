@@ -63,8 +63,17 @@ Tone curve (parametric + point) → Color Mixer (HSL) → Color Grading → Deta
 - Sync settings to selection with **batch preview grid**, failures listed per photo.
 - Export presets: size, JPEG/AVIF/WebP/TIFF, output sharpening, watermark.
 - Import presets with a per-step summary afterwards.
+- HEIC/HEIF decode: native where the browser has it (Safari), else libheif WASM (`heic-to`), lazy-loaded.
+- ✅ Done: Library → Select → Sync settings… (groups, per-photo auto exposure, WB as offset from as-shot, crop skipped on orientation mismatch, preview grid, failures listed) · Export dialog (Develop + Library selection) with built-in + saved presets, JPEG/WebP/AVIF/TIFF, long edge, output sharpening, watermark, folder output for batches · "On import" preset + Auto with a summary toast; sidecar edits are never overwritten.
 
 ## Phase 8 — Optional
+- ✅ Whole-library export/import: Library → Back up edits / Restore edits… (one JSON: every sidecar + albums, ratings, flags, full history; restore matches by file name + dimensions and lists what didn't match).
+- ✅ Global AI switch (Settings, gear in top bar / mobile Settings tab): off by default, per device. `src/ai.ts` `loadModel()` is the only path to a model: refuses while off, same-origin only, drops cached models when turned off. Masking/Remove tabs are hidden while off (resolves open decision 3).
+- ✅ AI model licenses verified (upstream LICENSE files): MI-GAN code + weights MIT, MobileSAM Apache-2.0, BiRefNet MIT, NAFNet MIT (SIDD dataset MIT), LaMa Apache-2.0. Open legal question: MI-GAN/LaMa were trained on Places2, which its site frames as research/education use — get a legal read before a commercial launch.
+- ✅ AI Remove (MI-GAN pipeline ONNX, ONNX Runtime Web: WebGPU → WASM, runtime bundled same-origin and lazy-loaded). Brush on the unrotated full frame → model fills from the unedited image → result kept as a per-photo retouch layer (PNG, IndexedDB) composited in linear light before all edits; export includes it. `npm run fetch-models` downloads the model into public/models (gitignored); pin its sha256 after the first download.
+- ✅ Settings → Downloaded AI data: per-item sizes, remove one or all (Cache Storage `heirloom-ai`, separate from the app cache), works while AI is off.
+- Limits: retouch layer isn't in undo history (use "Revert all removals") nor in sidecars/library backup yet.
+- Next: MobileSAM masking (needs local-adjustment design in the pipeline), NAFNet denoise; E2E sync. Tauri/Capacitor shells skipped for now.
 E2E-encrypted sync (CRDT edit log), opt-in on-device AI modules (masking, denoise, remove) with a global off switch, Tauri/Capacitor shells (memory-card eject, haptics on iOS), whole-library export/import.
 
 ---
@@ -72,4 +81,4 @@ E2E-encrypted sync (CRDT edit log), opt-in on-device AI modules (masking, denois
 ## Open decisions
 1. Mobile fine-mode gesture: long-press vs two-finger drag (§1).
 2. Pricing model (§7) — product owner.
-3. Masking/Remove tabs in the mobile nav ship disabled until Phase 8, or hidden?
+3. ~~Masking/Remove tabs: disabled or hidden?~~ Hidden while AI is off.

@@ -1,4 +1,5 @@
 import { db } from './db.ts';
+import { decodeBitmap } from './decode.ts';
 import { RAW_EXT, rawInfo, type Exif } from './raw.ts';
 import { defaults, type Values } from './sliders.ts';
 import { same, type Step } from './history.ts';
@@ -9,6 +10,7 @@ export type Photo = {
   v: Values; hist: Step[]; hi: number; rating: number; flag: boolean; reject?: boolean; label: number;
   album?: string; // app-side album; '' / undefined = unfiled
   thumb?: Blob;   // ~480 px, grid + filmstrip
+  retouch?: Blob; // AI Remove layer: PNG at the loaded size, alpha = replaced pixels
   preview?: Blob; // ~2048 px, Cull view (FIXER_IMPROVEMENTS §2)
   url?: string; // runtime-only object URL for the thumbnail
 };
@@ -20,7 +22,7 @@ export const LABEL_COLORS = ['transparent', '#D9534F', '#E8C33A', '#4CA65A', '#4
 /** Per-photo defaults: Temp starts at the camera's as-shot Kelvin. */
 export const base = (p: { asShot: number }): Values => ({ ...defaults(), temp: p.asShot });
 export const isEdited = (p: Photo) => !same(p.v, base(p));
-export const isImage = (name: string, type = '') => RAW_EXT.test(name) || /^image\//.test(type) || /\.(jpe?g|png|webp|avif|heic|tiff?)$/i.test(name);
+export const isImage = (name: string, type = '') => RAW_EXT.test(name) || /^image\//.test(type) || /\.(jpe?g|png|webp|avif|heic|heif|hif|tiff?)$/i.test(name);
 
 export const fileOf = async (p: Photo): Promise<File> =>
   p.src.kind === 'blob' ? new File([p.src.blob], p.name) : p.src.handle.getFile();
@@ -34,8 +36,8 @@ async function shrink(bmp: ImageBitmap, max: number, quality: number) {
 }
 
 /** Thumb + preview from a source image (the original, or a RAW's embedded JPEG). */
-export async function makePreviews(src: Blob) {
-  const bmp = await createImageBitmap(src);
+export async function makePreviews(src: Blob, name = '') {
+  const bmp = await decodeBitmap(src, name);
   try { return { w: bmp.width, h: bmp.height, thumb: await shrink(bmp, 480, 0.8), preview: await shrink(bmp, 2048, 0.85) }; }
   finally { bmp.close(); }
 }
@@ -45,7 +47,7 @@ export async function withPreview(p: Photo): Promise<Photo | null> {
   try {
     const src = p.raw ? p.thumb : await fileOf(p);
     if (!src) return null;
-    const { thumb, preview } = await makePreviews(src);
+    const { thumb, preview } = await makePreviews(src, p.raw ? '' : p.name);
     return { ...p, thumb, preview };
   } catch { return null; }
 }
@@ -57,7 +59,7 @@ export async function buildPhoto(file: File, src: Src): Promise<Photo> {
     const r = await rawInfo(file);
     // the embedded JPEG is often full-size: derive a light thumb + a cull preview from it
     info = r.thumb ? { ...r, ...(await makePreviews(r.thumb).then(({ thumb, preview }) => ({ thumb, preview })).catch(() => ({}))) } : r;
-  } else info = { ...(await makePreviews(file)), exif: {}, asShot: 5500 };
+  } else info = { ...(await makePreviews(file, file.name)), exif: {}, asShot: 5500 };
   const v = base(info);
   return {
     id: crypto.randomUUID(), name: file.name, src, raw, exif: info.exif, asShot: info.asShot,
@@ -157,3 +159,29 @@ export const albumsOf = (ps: Photo[]) => [...new Set(ps.map(p => p.album).filter
 export const byDate = (a: Photo, b: Photo) => b.date - a.date;
 
 export const photoKey = (p: Photo) => (p.src.kind === 'handle' ? `${p.src.folder}/${p.name}` : p.id);
+
+// ---- Whole-library export / import (Phase 8, FIXER_IMPROVEMENTS §7) ----
+// Edits only (the same data as each sidecar, plus albums): originals stay where they are.
+export type LibraryFile = { app: 'heirloom-library'; version: 1; exported: number; photos: (ReturnType<typeof JSON.parse> & { w: number; h: number; date: number })[] };
+
+export const exportLibrary = (ps: Photo[]) => JSON.stringify({
+  app: 'heirloom-library', version: 1, exported: Date.now(),
+  photos: ps.map(p => ({ ...JSON.parse(toSidecar(p)), w: p.w, h: p.h, date: p.date })),
+} satisfies LibraryFile, null, 1);
+
+/** Match entries to photos by file name + dimensions (name alone if unique). Returns updated photos and what didn't match. */
+export function importLibrary(ps: Photo[], text: string) {
+  const j = JSON.parse(text) as LibraryFile;
+  if (j?.app !== 'heirloom-library' || !Array.isArray(j.photos)) throw new Error('Not a Heirloom library file');
+  const byName = new Map<string, Photo[]>();
+  for (const p of ps) byName.set(p.name, [...(byName.get(p.name) ?? []), p]);
+  const updates = new Map<string, Photo>(), missing: string[] = [];
+  for (const e of j.photos) {
+    const c = byName.get(e.file) ?? [];
+    const hit = c.filter(p => (p.w === e.w && p.h === e.h) || (p.w === e.h && p.h === e.w));
+    const p = hit.length === 1 ? hit[0] : c.length === 1 ? c[0] : undefined;
+    if (!p || updates.has(p.id)) { missing.push(e.file + (c.length > 1 ? ' (ambiguous)' : '')); continue; }
+    updates.set(p.id, applySidecar(p, JSON.stringify(e)));
+  }
+  return { photos: ps.map(p => updates.get(p.id) ?? p), matched: updates.size, total: j.photos.length, missing };
+}
