@@ -14,11 +14,12 @@ import { decodeBitmap } from './decode.ts';
 import { syncLayers, retouchedThumb, exportLibrary, importLibrary, isEdited, FILTERS, albumsOf, inAlbum, byDate, withPreview, LABELS, LABEL_COLORS, base, buildPhoto, canOpenFolders, fileOf, importFolder, isImage, loadFolders, photoKey, writeSidecar, type Folder, type Photo } from './library.ts';
 import { Library } from './Library.tsx';
 import { Cull } from './Cull.tsx';
-import { ExportDialog, SettingsDialog, SyncDialog } from './Batch.tsx';
+import { DevicesDialog, ExportDialog, SettingsDialog, SyncDialog } from './Batch.tsx';
 import { aiEnabled, onAiChange, setAiEnabled } from './ai.ts';
 import { developPreview, maskData } from './render.ts';
 import type { Values } from './sliders.ts';
 import { DenoisePanel, RemoveOverlay, RemovePanel } from './Remove.tsx';
+import { stamp } from './sync-core.ts';
 import { MaskOverlay, MaskPanel, type MaskMode } from './Mask.tsx';
 import { applyBrush, emptyMask, linearMask, radialMask, type Pt2 } from './mask-shapes.ts';
 import { maskSize } from './sam-core.ts';
@@ -62,7 +63,7 @@ export function App() {
   const view = useRef<HTMLCanvasElement>(null), stage = useRef<HTMLDivElement>(null);
   const histC = useRef<HTMLCanvasElement>(null), navC = useRef<HTMLCanvasElement>(null);
   const fileIn = useRef<HTMLInputElement>(null);
-  const [dialog, setDialog] = useState<{ kind: 'export' | 'sync' | 'settings'; ids: string[] } | null>(null);
+  const [dialog, setDialog] = useState<{ kind: 'export' | 'sync' | 'settings' | 'devices'; ids: string[] } | null>(null);
   const [ai, setAi] = useState(aiEnabled);
   useEffect(() => onAiChange(setAi), []);
   const removing = mode === 'develop' && tool === 'remove' && ai;
@@ -74,6 +75,7 @@ export function App() {
   useEffect(() => { if (toast && !toast.fails.length) { const t = setTimeout(() => setToast(null), 8000); return () => clearTimeout(t); } }, [toast]);
   const pipe = useRef<ReturnType<typeof createPipeline>>();
   const cur = photos.find(p => p.id === curId);
+  const photosRef = useRef(photos); photosRef.current = photos; // device sync reads the live list
 
   // Swap a photo's thumbnail URL for one that includes its removals (or back to the original after a revert)
   const refreshThumb = async (p: Photo) => {
@@ -117,7 +119,9 @@ export function App() {
   useEffect(() => {
     const t = setTimeout(async () => {
       for (const p of photos) {
-        if (saved.current.get(p.id) === p) continue;
+        const prev = saved.current.get(p.id);
+        if (prev === p) continue;
+        p.mt = stamp(prev, p); // per-group modified times for device sync (not rendered, so set in place)
         saved.current.set(p.id, p);
         const { url: _url, ...rec } = p;
         await db.putPhoto(rec);
@@ -718,7 +722,9 @@ export function App() {
         <button className="add" onClick={() => fileIn.current!.click()} aria-label="Import photos">+</button>
         <input ref={fileIn} type="file" multiple hidden onChange={e => { addFiles(e.target.files!); e.target.value = ''; }} />
       </footer>
-      {dialog?.kind === 'settings' && <SettingsDialog ai={ai} setAi={setAiEnabled} onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'settings' && <SettingsDialog ai={ai} setAi={setAiEnabled} onClose={() => setDialog(null)} onDevices={() => setDialog({ kind: 'devices', ids: [] })} />}
+      {dialog?.kind === 'devices' && <DevicesDialog photos={() => photosRef.current} onClose={() => setDialog(null)}
+        commit={ch => { const m = new Map(ch.map(p => [p.id, p])); photosRef.current = photosRef.current.map(p => m.get(p.id) ?? p); setPhotos(ps => ps.map(p => m.get(p.id) ?? p)); }} />}
       {dialog?.kind === 'export' && <ExportDialog photos={dialog.ids.map(id => photos.find(p => p.id === id)!).filter(Boolean)} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'sync' && cur && <SyncDialog source={cur} targets={dialog.ids.map(id => photos.find(p => p.id === id)!).filter(Boolean)} onApply={applySync} onClose={() => setDialog(null)} />}
       {toast && (

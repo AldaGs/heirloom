@@ -22,6 +22,7 @@ export type Photo = {
   retouch?: Blob; // AI Remove layer in effect (derived: layers[hist[hi].rt]); PNG at the loaded size, alpha = replaced pixels
   layers?: Record<string, Blob>; // every AI layer / mask image referenced by history, by id
   masks?: (Blob | undefined)[];  // derived: mask image per slot at the current step
+  mt?: Partial<Record<'edits' | 'rating' | 'flag' | 'label' | 'album', number>>; // per-group modified times (device sync)
   preview?: Blob; // ~2048 px, Cull view (FIXER_IMPROVEMENTS §2)
   url?: string; // runtime-only object URL for the thumbnail
 };

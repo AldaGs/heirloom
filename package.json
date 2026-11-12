@@ -4,7 +4,7 @@
   "description": "",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && node src/history.test.ts && node src/noise.test.ts && node src/batch.test.ts && node src/ai.test.ts && node src/remove.test.ts && node src/denoise.test.ts && node src/sam.test.ts && vite build",
+    "build": "tsc --noEmit && node src/history.test.ts && node src/noise.test.ts && node src/batch.test.ts && node src/ai.test.ts && node src/remove.test.ts && node src/denoise.test.ts && node src/sam.test.ts && node src/sync-core.test.ts && vite build",
     "preview": "vite preview",
     "fetch-models": "node scripts/fetch-models.mjs"
   },
@@ -16,10 +16,12 @@
     "heic-to": "^1.6.7",
     "libraw-wasm": "^1.6.0",
     "onnxruntime-web": "^1.31.1",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "typescript": "^5.6.3",

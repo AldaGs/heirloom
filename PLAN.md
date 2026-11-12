@@ -80,7 +80,10 @@ Tone curve (parametric + point) → Color Mixer (HSL) → Color Grading → Deta
   - Mask images are versioned like AI layers: history steps carry `mk` (id per slot), sidecars write `<photo>.<id>.mask.png`. Undo/redo restore shapes; export and sync previews apply masks.
   - Keyboard shortcuts now ignore only text fields (Ctrl+Z after toggling a checkbox works).
 - ✅ Masking extras: linear + radial gradient masks (drag, live low-res preview), brush masks and "Refine with brush" (Add/Subtract, each stroke merged on release so the tint shows the real result), per-mask Feather (mask texture mipmaps, sampled per channel), Show mask. The Masking tab no longer needs AI; only "Select subject" does.
-- Next: E2E sync. Tauri/Capacitor shells skipped for now.
+- ✅ Device-to-device sync (chosen over a cloud folder or relay): WebRTC data channel, paired by exchanging two codes (QR or copy/paste; camera scan where BarcodeDetector exists). No signalling server; the codes carry the DTLS fingerprints, so the link is authenticated and end-to-end encrypted. STUN (Google) only to find public addresses across networks; same Wi-Fi works without it.
+  - Data model: per-photo, per-group last-writer-wins (`edits`, `rating`, `flag`, `label`, `album`) with modified times stamped on save → order-independent merge (both devices converge). Photos matched by name + capture time + size; photos themselves never sent. Edits travel as sidecar JSON + the layer/mask PNGs the history uses.
+  - Limits: both devices must be open at once; wall-clock timestamps (a device with a wrong clock can win/lose ties unfairly); no auto-reconnect / background sync.
+- Tauri/Capacitor shells skipped for now.
 E2E-encrypted sync (CRDT edit log), opt-in on-device AI modules (masking, denoise, remove) with a global off switch, Tauri/Capacitor shells (memory-card eject, haptics on iOS), whole-library export/import.
 
 ---
