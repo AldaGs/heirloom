@@ -4,13 +4,22 @@ import { RAW_EXT, rawInfo, type Exif } from './raw.ts';
 import { defaults, type Values } from './sliders.ts';
 import { same, type Step } from './history.ts';
 
+/** Keep `retouch` in step with the current history step, and drop layers no step references. */
+export function syncLayers(p: Photo): Photo {
+  const used = new Set(p.hist.map(s => s.rt).filter(Boolean) as string[]);
+  const layers = p.layers ? Object.fromEntries(Object.entries(p.layers).filter(([k]) => used.has(k))) : undefined;
+  const rt = p.hist[p.hi]?.rt;
+  return { ...p, layers: layers && Object.keys(layers).length ? layers : undefined, retouch: rt ? layers?.[rt] : undefined };
+}
+
 export type Src = { kind: 'blob'; blob: Blob } | { kind: 'handle'; handle: FileSystemFileHandle; folder: string };
 export type Photo = {
   id: string; name: string; src: Src; raw: boolean; exif: Exif; asShot: number; date: number; w: number; h: number;
   v: Values; hist: Step[]; hi: number; rating: number; flag: boolean; reject?: boolean; label: number;
   album?: string; // app-side album; '' / undefined = unfiled
   thumb?: Blob;   // ~480 px, grid + filmstrip
-  retouch?: Blob; // AI Remove layer: PNG at the loaded size, alpha = replaced pixels
+  retouch?: Blob; // AI Remove layer in effect (derived: layers[hist[hi].rt]); PNG at the loaded size, alpha = replaced pixels
+  layers?: Record<string, Blob>; // every Remove layer referenced by history, by id
   preview?: Blob; // ~2048 px, Cull view (FIXER_IMPROVEMENTS §2)
   url?: string; // runtime-only object URL for the thumbnail
 };
@@ -75,7 +84,7 @@ export const sidecarName = (name: string) => `${name}.heirloom.json`;
 export const toSidecar = (p: Photo) => JSON.stringify({
   app: 'heirloom', version: 1, file: p.name,
   settings: p.v, rating: p.rating, flag: p.flag, reject: !!p.reject, label: LABELS[p.label], album: p.album || undefined,
-  history: p.hist.slice(0, p.hi + 1).map(s => ({ label: s.label, t: s.t, settings: s.v })),
+  history: p.hist.slice(0, p.hi + 1).map(s => ({ label: s.label, t: s.t, settings: s.v, ...(s.rt ? { removeLayer: retouchFile(p.name, s.rt) } : {}) })),
 }, null, 2);
 
 export function applySidecar(p: Photo, text: string): Photo {
@@ -83,10 +92,19 @@ export function applySidecar(p: Photo, text: string): Photo {
   if (j?.app !== 'heirloom' || typeof j.settings !== 'object') return p;
   const v = { ...base(p), ...j.settings };
   const hist: Step[] = Array.isArray(j.history) && j.history.length
-    ? j.history.map((s: { label: string; t: number; settings: Values }) => ({ label: s.label, t: s.t, v: { ...base(p), ...s.settings } }))
+    ? j.history.map((s: { label: string; t: number; settings: Values; removeLayer?: string }) => {
+        const rt = s.removeLayer ? layerId(s.removeLayer) : undefined;
+        return { label: s.label, t: s.t, v: { ...base(p), ...s.settings }, rt: rt && p.layers?.[rt] ? rt : undefined };
+      })
     : [{ label: 'Import', v, t: Date.now() }];
-  return { ...p, v, hist, hi: hist.length - 1, rating: +j.rating || 0, flag: !!j.flag, reject: !!j.reject, label: Math.max(0, LABELS.indexOf(j.label)), album: typeof j.album === 'string' ? j.album : undefined };
+  return syncLayers({ ...p, v, hist, hi: hist.length - 1, rating: +j.rating || 0, flag: !!j.flag, reject: !!j.reject, label: Math.max(0, LABELS.indexOf(j.label)), album: typeof j.album === 'string' ? j.album : undefined });
 }
+
+/** Remove layers sit beside the sidecar: `<photo>.<id>.remove.png`. */
+export const retouchFile = (name: string, id: string) => `${name}.${id}.remove.png`;
+const layerId = (file: string) => file.match(/\.([\w-]+)\.remove\.png$/)?.[1];
+/** Layer files a sidecar refers to (to load them before applySidecar). */
+export const sidecarLayers = (text: string): string[] => { try { const j = JSON.parse(text); return (j.history ?? []).map((s: { removeLayer?: string }) => s.removeLayer).filter(Boolean); } catch { return []; } };
 
 /** Sidecars live in `<folder>/.heirloom/` so they don't interleave with the photos. */
 export const SIDECAR_DIR = '.heirloom';
@@ -95,6 +113,18 @@ export async function writeSidecar(p: Photo, folder: FileSystemDirectoryHandle) 
   const dir = await folder.getDirectoryHandle(SIDECAR_DIR, { create: true });
   const w = await (await dir.getFileHandle(sidecarName(p.name), { create: true })).createWritable();
   await w.write(toSidecar(p)); await w.close();
+  const keep = new Set(p.hist.slice(0, p.hi + 1).map(s => s.rt).filter(Boolean).map(id => retouchFile(p.name, id!)));
+  for (const [id, blob] of Object.entries(p.layers ?? {})) {
+    const f = retouchFile(p.name, id);
+    if (!keep.has(f)) continue;
+    if (await dir.getFileHandle(f).then(() => true, () => false)) continue; // layers never change once written
+    const lw = await (await dir.getFileHandle(f, { create: true })).createWritable(); await lw.write(blob); await lw.close();
+  }
+  // only our own naming pattern for this exact photo is ever deleted
+  const prefix = `${p.name}.`;
+  for await (const e of dir.values())
+    if (e.kind === 'file' && e.name.startsWith(prefix) && e.name.endsWith('.remove.png') && /^[\w-]+$/.test(e.name.slice(prefix.length, -'.remove.png'.length)) && !keep.has(e.name))
+      await dir.removeEntry(e.name).catch(() => {});
 }
 
 // ---- Folders (desktop Chromium: File System Access) ----
@@ -137,7 +167,14 @@ export async function importFolder(known: Set<string>, onProgress: (msg: string)
     try {
       let p = await buildPhoto(await fh.getFile(), { kind: 'handle', handle: fh, folder: folder.key });
       const sc = sidecars.get(sidecarName(fh.name));
-      if (sc) p = applySidecar(p, await (await sc.getFile()).text());
+      if (sc) {
+        const text = await (await sc.getFile()).text(), layers: Record<string, Blob> = {};
+        for (const f of sidecarLayers(text)) {
+          const id = layerId(f), fh = scDir && id ? await scDir.getFileHandle(f).catch(() => null) : null;
+          if (id && fh) layers[id] = await fh.getFile();
+        }
+        p = applySidecar({ ...p, layers }, text);
+      }
       out.push(p);
     } catch (e) { console.warn(`Skipped ${fh.name}:`, e); }
   }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Encoder } from './Encoder';
 import { autoExposure, createPipeline, histogram } from './pipeline.ts';
-import { push, same } from './history.ts';
+import { goto, push, pushStep, same } from './history.ts';
 import { PRESETS } from './sliders.ts';
 import { Adjustments, byKey } from './Adjustments.tsx';
 import { ASPECTS, CropOverlay, CropPanel, fitAspect, type Rect } from './Crop.tsx';
@@ -10,7 +10,7 @@ import { useMedia, usePref } from './prefs.ts';
 import { decodeRaw, fmtShutter } from './raw.ts';
 import { db } from './db.ts';
 import { decodeBitmap } from './decode.ts';
-import { retouchedThumb, exportLibrary, importLibrary, isEdited, FILTERS, albumsOf, inAlbum, byDate, withPreview, LABELS, LABEL_COLORS, base, buildPhoto, canOpenFolders, fileOf, importFolder, isImage, loadFolders, photoKey, writeSidecar, type Folder, type Photo } from './library.ts';
+import { syncLayers, retouchedThumb, exportLibrary, importLibrary, isEdited, FILTERS, albumsOf, inAlbum, byDate, withPreview, LABELS, LABEL_COLORS, base, buildPhoto, canOpenFolders, fileOf, importFolder, isImage, loadFolders, photoKey, writeSidecar, type Folder, type Photo } from './library.ts';
 import { Library } from './Library.tsx';
 import { Cull } from './Cull.tsx';
 import { ExportDialog, SettingsDialog, SyncDialog } from './Batch.tsx';
@@ -80,9 +80,13 @@ export function App() {
     (async () => {
       // older records lack newer settings: fill them from defaults so the shader never sees undefined
       const stored = (await db.allPhotos<Photo>()).map(p => ({ ...p, v: { ...base(p), ...p.v }, hist: p.hist.map(h => ({ ...h, v: { ...base(p), ...h.v } })) }));
+      // removals saved before they had history: attach the layer to the current step
+      for (const [i, p] of stored.entries()) if (p.retouch && !p.layers) {
+        const id = 'legacy';
+        stored[i] = { ...p, layers: { [id]: p.retouch }, hist: p.hist.map((h, j) => (j === p.hi ? { ...h, rt: id } : h)) };
+      }
       for (const p of stored) saved.current.set(p.id, p);
       setPhotos(stored.map(withUrl));
-      for (const p of stored) if (p.retouch) refreshThumb(p);
       const lock: Folder[] = [];
       for (const f of await loadFolders()) {
         if ((await f.handle.queryPermission({ mode: 'readwrite' })) === 'granted') granted.current.set(f.key, f.handle);
@@ -174,6 +178,15 @@ export function App() {
     setLoadedId(null); // retry loading the current photo if it lives in that folder
   };
 
+  const loadedRt = useRef<Blob | undefined>();
+  useEffect(() => {
+    if (cur && loadedId === cur.id && loadedRt.current !== cur.retouch) setLoadedId(null);
+  }, [cur?.retouch]); // eslint-disable-line react-hooks/exhaustive-deps
+  const thumbRt = useRef(new Map<string, Blob | undefined>());
+  useEffect(() => {
+    for (const p of photos) if (thumbRt.current.get(p.id) !== p.retouch) { const had = thumbRt.current.has(p.id); thumbRt.current.set(p.id, p.retouch); if (had || p.retouch) refreshThumb(p); }
+  }, [photos]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Load current photo into the GPU
   useEffect(() => {
     if (!cur || !view.current || mode !== 'develop' || loadedId === cur.id) return;
@@ -183,6 +196,7 @@ export function App() {
     (async () => {
       const file = await fileOf(cur).catch(() => { throw new Error('reconnect its folder first (button in the top bar).'); });
       const patch = cur.retouch ? await createImageBitmap(cur.retouch) : undefined;
+      loadedRt.current = cur.retouch;
       if (cur.raw) { const r = await decodeRaw(file); if (live) await pipe.current!.load({ kind: 'raw', ...r }, patch); }
       else { const bmp = await decodeBitmap(file, cur.name); if (live) await pipe.current!.load({ kind: 'bitmap', bmp }, patch); bmp.close(); }
       patch?.close();
@@ -231,9 +245,10 @@ export function App() {
     return push(p, { ...p.v, ...Object.fromEntries(keys.map(k => [k, b[k]])) }, label);
   });
   const commit = () => update(p => push(p, p.v));
-  const jump = (i: number) => update(p => ({ ...p, hi: i, v: p.hist[i].v }));
-  const undo = () => update(p => (p.hi > 0 ? { ...p, hi: p.hi - 1, v: p.hist[p.hi - 1].v } : p));
-  const redo = () => update(p => (p.hi < p.hist.length - 1 ? { ...p, hi: p.hi + 1, v: p.hist[p.hi + 1].v } : p));
+  // History steps can carry an AI Remove layer: syncLayers puts the right one in effect
+  const jump = (i: number) => update(p => syncLayers(goto(p, i)));
+  const undo = () => update(p => syncLayers(goto(p, p.hi - 1)));
+  const redo = () => update(p => syncLayers(goto(p, p.hi + 1)));
   const auto = () => {
     if (!cur || !view.current) return;
     pipe.current!.render(base(cur), cur.asShot);
@@ -258,7 +273,8 @@ export function App() {
       const c = new OffscreenCanvas(layer.width, layer.height); c.getContext('2d')!.putImageData(layer, 0, 0);
       const retouch = await c.convertToBlob({ type: 'image/png' });
       b.getContext('2d')!.clearRect(0, 0, b.width, b.height);
-      update(p => ({ ...p, retouch })); refreshThumb({ ...cur, retouch }); setLoadedId(null); setRmMsg('Removed.');
+      const id = crypto.randomUUID().slice(0, 8);
+      update(p => syncLayers(pushStep({ ...p, layers: { ...p.layers, [id]: retouch } }, 'Remove', id))); setRmMsg('Removed. Undo with Ctrl+Z.');
     } catch (e) { setRmMsg(`Couldn't remove: ${(e as Error).message}`); }
     setRmBusy(false);
   };
@@ -456,7 +472,7 @@ export function App() {
         {removing && cur ? (
           <RemovePanel size={brush} setSize={setBrush} busy={rmBusy} msg={rmMsg} hasRetouch={!!cur.retouch} done={() => setTool('edit')}
             onRemove={runRemove} onClear={() => { const b = brushRef.current; b?.getContext('2d')!.clearRect(0, 0, b.width, b.height); }}
-            onRevert={() => { if (confirm('Revert every removal on this photo?')) { update(p => ({ ...p, retouch: undefined })); refreshThumb({ ...cur, retouch: undefined }); setLoadedId(null); setRmMsg(''); } }} />
+            onRevert={() => { update(p => syncLayers(pushStep(p, 'Revert removals', undefined))); setRmMsg('Reverted. Undo with Ctrl+Z.'); }} />
         ) : cropping && cur ? (
           <CropPanel v={cur.v} aspect={aspect} setAspect={setAspect} angle={byKey.angle} setAngle={x => setVal('angle', x)} commit={commit}
             reset={() => resetKeys(GEOMETRY, 'Reset crop')} done={() => setTool('edit')} />

@@ -200,6 +200,7 @@ export function SettingsDialog({ ai, setAi, onClose }: { ai: boolean; setAi: (on
           {AI_MODULES.map(m => <li key={m.id}><b>{m.name}</b> — {m.what} <span className="muted">· {!ai ? 'off' : m.id === 'remove' ? 'available' : 'not installed yet'}</span></li>)}
         </ul>
         <p className="muted small">This setting is per device.</p>
+        <p className="muted small">Model licenses: {Object.values(MODELS).map(m => <a key={m.file} href={m.file.replace(/\.onnx$/, '.LICENSE.txt')} target="_blank" rel="noreferrer">{m.name} ({m.license})</a>)}</p>
       </section>
       <section className="setting">
         <h4>Downloaded AI data</h4>
