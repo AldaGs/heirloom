@@ -58,3 +58,23 @@ export function RemovePanel({ size, setSize, busy, msg, hasRetouch, onRemove, on
     </section>
   );
 }
+
+export function DenoisePanel({ strength, setStrength, progress, msg, pixels, onRun, onCancel, done }: {
+  strength: number; setStrength: (n: number) => void; progress: { done: number; total: number } | null; msg: string; pixels: number;
+  onRun: () => void; onCancel: () => void; done: () => void;
+}) {
+  const busy = !!progress;
+  return (
+    <section className="adjust remove-panel">
+      <div className="sec-head"><h3>AI Denoise</h3><button className="primary" onClick={done} disabled={busy}>Done</button></div>
+      <p className="muted small">Removes sensor noise from the whole photo, on this device (NAFNet). Runs on the unedited image, so your sliders still apply on top. {(pixels / 1e6).toFixed(0)} MP: seconds with WebGPU, minutes on CPU.</p>
+      <label className="brush-size">Strength <input type="range" min={10} max={100} step={5} value={strength} disabled={busy} onChange={e => setStrength(+e.target.value)} /> <span>{strength}%</span></label>
+      <div className="row">
+        {busy ? <button className="ghost bordered" onClick={onCancel}>Cancel</button> : <button className="primary" onClick={onRun}>Denoise</button>}
+      </div>
+      {progress && progress.total > 1 && <progress max={progress.total} value={progress.done} aria-label="Denoise progress" />}
+      {progress && progress.total > 1 && <p className="small muted">Tile {progress.done} of {progress.total}</p>}
+      {msg && <p className="small" role="status">{msg}</p>}
+    </section>
+  );
+}

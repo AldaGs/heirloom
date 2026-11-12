@@ -10,6 +10,12 @@ const MODELS = [
     sha256: '6f1f3530a1a2324b19752018ce756088b07973cda8d7d890034ace5c8a48c40b',
     license: 'https://raw.githubusercontent.com/Picsart-AI-Research/MI-GAN/main/LICENSE-WEIGHTS',
   },
+  {
+    // No upstream ONNX for width32: built from the official checkpoint by scripts/convert_nafnet.py (deterministic output).
+    file: 'nafnet_sidd_w32.onnx',
+    build: 'python3 scripts/convert_nafnet.py   (needs: pip install torch onnx)',
+    sha256: '3c19cdf9639c1458ebdfa0b2d77a3a6d5652ee60e0c7c9d9437b5b26651792d1',
+  },
 ];
 
 const dir = new URL('../public/models/', import.meta.url);
@@ -19,6 +25,10 @@ for (const m of MODELS) {
   const have = await readFile(dest).catch(() => null);
   const hash = b => createHash('sha256').update(b).digest('hex');
   if (have && (!m.sha256 || hash(have) === m.sha256)) { console.log(`✓ ${m.file} (present)`); continue; }
+  if (m.build) {
+    if (have) throw new Error(`${m.file}: sha256 mismatch (${hash(have)}); rebuild with: ${m.build}`);
+    console.log(`✗ ${m.file} missing — build it with: ${m.build}`); process.exitCode = 1; continue;
+  }
   console.log(`↓ ${m.file}`);
   const res = await fetch(m.url);
   if (!res.ok) throw new Error(`${m.file}: HTTP ${res.status}`);

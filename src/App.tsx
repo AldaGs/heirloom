@@ -17,7 +17,7 @@ import { ExportDialog, SettingsDialog, SyncDialog } from './Batch.tsx';
 import { aiEnabled, onAiChange, setAiEnabled } from './ai.ts';
 import { developPreview } from './render.ts';
 import type { Values } from './sliders.ts';
-import { RemoveOverlay, RemovePanel } from './Remove.tsx';
+import { DenoisePanel, RemoveOverlay, RemovePanel } from './Remove.tsx';
 import { NoiseField, ProceduralImageLoader } from './ProceduralImageLoader.tsx';
 
 type Zoom = 'fit' | 1 | 2;
@@ -35,7 +35,7 @@ export function App() {
   const mobile = useMedia('(max-width: 700px)');
   const [focus, setFocus] = useState(false);            // Focus mode: photo + one floating encoder
   const [lastTool, setLastTool] = usePref('lastTool', 'exposure'); // remembered per device
-  const [tool, setTool] = usePref<'edit' | 'presets' | 'crop' | 'info' | 'remove'>('tool', 'edit');
+  const [tool, setTool] = usePref<'edit' | 'presets' | 'crop' | 'info' | 'remove' | 'denoise'>('tool', 'edit');
   const [brush, setBrush] = usePref('removeBrush', 3);
   const brushRef = useRef<HTMLCanvasElement | null>(null);
   const [rmBusy, setRmBusy] = useState(false), [rmMsg, setRmMsg] = useState('');
@@ -195,7 +195,7 @@ export function App() {
     setBusy(cur.raw ? 'Decoding RAW…' : 'Loading…');
     (async () => {
       const file = await fileOf(cur).catch(() => { throw new Error('reconnect its folder first (button in the top bar).'); });
-      const patch = cur.retouch ? await createImageBitmap(cur.retouch) : undefined;
+      const patch = cur.retouch ? await createImageBitmap(cur.retouch, { premultiplyAlpha: 'none' }) : undefined;
       loadedRt.current = cur.retouch;
       if (cur.raw) { const r = await decodeRaw(file); if (live) await pipe.current!.load({ kind: 'raw', ...r }, patch); }
       else { const bmp = await decodeBitmap(file, cur.name); if (live) await pipe.current!.load({ kind: 'bitmap', bmp }, patch); bmp.close(); }
@@ -256,6 +256,22 @@ export function App() {
     update(p => push(p, { ...p.v, exposure: +exposure.toFixed(2) }, 'Auto'));
   };
   // AI Remove: model sees the unedited image (earlier removals included); result goes into the photo's retouch layer
+  /** Current retouch layer as straight-alpha pixels at the loaded size (or undefined). */
+  const currentLayer = async (w: number, h: number) => {
+    if (!cur?.retouch) return undefined;
+    const bmp = await createImageBitmap(cur.retouch, { premultiplyAlpha: 'none' });
+    const c = new OffscreenCanvas(w, h), g = c.getContext('2d')!;
+    g.drawImage(bmp, 0, 0, w, h); bmp.close();
+    return g.getImageData(0, 0, w, h);
+  };
+  /** Store a new layer version and add a history step for it. */
+  const commitLayer = async (layer: ImageData, label: string) => {
+    const c = new OffscreenCanvas(layer.width, layer.height); c.getContext('2d')!.putImageData(layer, 0, 0);
+    const blob = await c.convertToBlob({ type: 'image/png' }), id = crypto.randomUUID().slice(0, 8);
+    update(p => syncLayers(pushStep({ ...p, layers: { ...p.layers, [id]: blob } }, label, id)));
+  };
+
+  // AI Remove: model sees the unedited image (earlier AI edits included); result goes into a new layer version
   const runRemove = async () => {
     if (!cur || !pipe.current || !brushRef.current) return;
     setRmBusy(true); setRmMsg('Removing… (first run downloads the model)');
@@ -263,20 +279,30 @@ export function App() {
       const { removeArea } = await import('./remove.ts');
       const baseImg = pipe.current.baseImage(), b = brushRef.current;
       const brushImg = b.getContext('2d')!.getImageData(0, 0, b.width, b.height);
-      let prev: ImageData | undefined;
-      if (cur.retouch) {
-        const bmp = await createImageBitmap(cur.retouch, { premultiplyAlpha: 'none' });
-        const c = new OffscreenCanvas(baseImg.width, baseImg.height), g = c.getContext('2d')!;
-        g.drawImage(bmp, 0, 0, c.width, c.height); bmp.close(); prev = g.getImageData(0, 0, c.width, c.height);
-      }
-      const layer = await removeArea(baseImg, brushImg, prev);
-      const c = new OffscreenCanvas(layer.width, layer.height); c.getContext('2d')!.putImageData(layer, 0, 0);
-      const retouch = await c.convertToBlob({ type: 'image/png' });
+      const layer = await removeArea(baseImg, brushImg, await currentLayer(baseImg.width, baseImg.height));
       b.getContext('2d')!.clearRect(0, 0, b.width, b.height);
-      const id = crypto.randomUUID().slice(0, 8);
-      update(p => syncLayers(pushStep({ ...p, layers: { ...p.layers, [id]: retouch } }, 'Remove', id))); setRmMsg('Removed. Undo with Ctrl+Z.');
+      await commitLayer(layer, 'Remove'); setRmMsg('Removed. Undo with Ctrl+Z.');
     } catch (e) { setRmMsg(`Couldn't remove: ${(e as Error).message}`); }
     setRmBusy(false);
+  };
+
+  // AI Denoise (NAFNet): whole image, tiled, blended at the chosen strength
+  const [dnStrength, setDnStrength] = usePref('denoiseStrength', 70);
+  const [dn, setDn] = useState<{ done: number; total: number } | null>(null), [dnMsg, setDnMsg] = useState('');
+  const dnAbort = useRef<AbortController | null>(null);
+  const runDenoise = async () => {
+    if (!cur || !pipe.current) return;
+    const ac = new AbortController(); dnAbort.current = ac;
+    setDnMsg('Loading model… (first run downloads ~60 MB)'); setDn({ done: 0, total: 1 });
+    try {
+      const { denoise } = await import('./denoise.ts');
+      const baseImg = pipe.current.baseImage(), t0 = performance.now();
+      const { layer, gpu } = await denoise(baseImg, dnStrength / 100, await currentLayer(baseImg.width, baseImg.height),
+        (done, total) => { setDn({ done, total }); setDnMsg(''); }, ac.signal);
+      await commitLayer(layer, `AI Denoise ${dnStrength}%`);
+      setDnMsg(`Done in ${((performance.now() - t0) / 1000).toFixed(0)} s (${gpu ? 'WebGPU' : 'CPU'}). Undo with Ctrl+Z.`);
+    } catch (e) { setDnMsg((e as Error).name === 'AbortError' ? 'Cancelled — nothing changed.' : `Couldn't denoise: ${(e as Error).message}`); }
+    setDn(null); dnAbort.current = null;
   };
   const exportJpeg = () => { if (cur) setDialog({ kind: 'export', ids: [cur.id] }); };
   const applySync = (vs: Map<string, Values>, label: string) => setPhotos(ps => ps.map(p => (vs.has(p.id) ? push(p, vs.get(p.id)!, label) : p)));
@@ -465,11 +491,15 @@ export function App() {
         <div className="tools" role="tablist">
           <ToolTab id="edit" tool={tool} setTool={setTool} label="Edit" d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4" />
           <ToolTab id="crop" tool={tool} setTool={setTool} label="Crop & straighten (R)" d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14" />
+          {ai && <ToolTab id="denoise" tool={tool} setTool={setTool} label="AI Denoise (on-device)" d="M4 4h2v2H4zM10 4h2v2h-2zM16 4h2v2h-2zM7 10h2v2H7zM13 10h2v2h-2zM4 16h2v2H4zM10 16h2v2h-2zM16 16h2v2h-2zM19 10h2v2h-2z" />}
           {ai && <ToolTab id="remove" tool={tool} setTool={setTool} label="Remove (AI, on-device)" d="m3 21 12-12M15 4V2M15 10V8M19 6h2M11 6h2M17.5 3.5 19 2M17.5 8.5 19 10" />}
           {ai && <button role="tab" aria-selected="false" disabled aria-label="Masking" title="AI module not installed yet"><Icon d="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" /></button>}
           <ToolTab id="info" tool={tool} setTool={setTool} label="Info (EXIF)" d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" />
         </div>
-        {removing && cur ? (
+        {tool === 'denoise' && ai && cur ? (
+          <DenoisePanel strength={dnStrength} setStrength={setDnStrength} progress={dn} msg={dnMsg} pixels={cur.w * cur.h}
+            onRun={runDenoise} onCancel={() => dnAbort.current?.abort()} done={() => setTool('edit')} />
+        ) : removing && cur ? (
           <RemovePanel size={brush} setSize={setBrush} busy={rmBusy} msg={rmMsg} hasRetouch={!!cur.retouch} done={() => setTool('edit')}
             onRemove={runRemove} onClear={() => { const b = brushRef.current; b?.getContext('2d')!.clearRect(0, 0, b.width, b.height); }}
             onRevert={() => { update(p => syncLayers(pushStep(p, 'Revert removals', undefined))); setRmMsg('Reverted. Undo with Ctrl+Z.'); }} />
@@ -498,6 +528,7 @@ export function App() {
           <MNav icon="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14" label="Crop" on={tool === 'crop'} onClick={() => setTool('crop')} />
           <MNav icon="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M16 4v4M10 10v4M18 16v4" label="Edit" on={tool === 'edit' || tool === 'info'} onClick={() => setTool('edit')} />
           {ai && <MNav icon="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" label="Masking" disabled />}
+          {ai && <MNav icon="M4 4h2v2H4zM10 4h2v2h-2zM16 4h2v2h-2zM7 10h2v2H7zM13 10h2v2h-2zM4 16h2v2H4zM10 16h2v2h-2z" label="Denoise" on={tool === 'denoise'} onClick={() => setTool('denoise')} />}
           {ai && <MNav icon="m3 21 12-12M15 4V2M15 10V8M19 6h2M11 6h2" label="Remove" on={tool === 'remove'} onClick={() => setTool('remove')} />}
         </nav>
       )}
@@ -532,7 +563,7 @@ export function App() {
   );
 }
 
-function ToolTab({ id, tool, setTool, label, d }: { id: 'edit' | 'crop' | 'info' | 'remove'; tool: string; setTool: (t: 'edit' | 'crop' | 'info' | 'remove') => void; label: string; d: string }) {
+function ToolTab({ id, tool, setTool, label, d }: { id: 'edit' | 'crop' | 'info' | 'remove' | 'denoise'; tool: string; setTool: (t: 'edit' | 'crop' | 'info' | 'remove' | 'denoise') => void; label: string; d: string }) {
   const on = tool === id || (id === 'edit' && tool === 'presets');
   return <button role="tab" aria-selected={on} className={on ? 'on' : ''} aria-label={label} title={label} onClick={() => setTool(id)}><Icon d={d} /></button>;
 }

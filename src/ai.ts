@@ -21,6 +21,7 @@ const models = new Map<string, Promise<ArrayBuffer>>();
 /** Same-origin model files (fetched by `npm run fetch-models`, never from a third party at runtime). */
 export const MODELS = {
   migan: { file: 'models/migan_pipeline_v2.onnx', name: 'MI-GAN 512 (Places2)', license: 'MIT — Picsart AI Research', module: 'remove' },
+  nafnet: { file: 'models/nafnet_sidd_w32.onnx', name: 'NAFNet SIDD width32', license: 'MIT — Megvii Research', module: 'denoise' },
 } as const;
 export type ModelId = keyof typeof MODELS;
 
