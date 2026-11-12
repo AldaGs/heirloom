@@ -14,7 +14,7 @@ h4 { margin: 16px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .08e
 .scroll::-webkit-scrollbar { width: 8px; height: 8px; }
 .scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
-.app { height: 100%; display: grid; grid-template: 48px 1fr 88px / 240px 1fr 300px; grid-template-areas: "top top top" "left center right" "film film film"; }
+.app { height: 100%; display: grid; grid-template: 48px minmax(0, 1fr) 88px / 240px minmax(0, 1fr) 300px; grid-template-areas: "top top top" "left center right" "film film film"; }
 
 /* Top bar */
 .top { grid-area: top; display: flex; align-items: center; gap: 12px; padding: 0 16px; background: var(--bar); border-bottom: 1px solid var(--border); }
@@ -45,10 +45,13 @@ h4 { margin: 16px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .08e
 .history button span:last-child { font-variant-numeric: tabular-nums; }
 
 /* Center */
-.center { grid-area: center; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--canvas); }
+.center { grid-area: center; overflow: hidden; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--canvas); }
 .stage { flex: 1; min-height: 0; overflow: auto; display: grid; place-items: center; padding: 32px; }
-.stage[data-zoom="fit"] { overflow: hidden; }
+.stage[data-zoom="fit"] { overflow: hidden; position: relative; }
 .stage canvas { max-width: 100%; max-height: 100%; display: block; }
+/* Fit: absolutely placed so max-* resolve against the stage's real box (a grid cell's height is indefinite,
+   which let large photos grow to their pixel size and spill under the panels). */
+.stage[data-zoom="fit"] canvas { position: absolute; inset: 32px; margin: auto; max-width: calc(100% - 64px); max-height: calc(100% - 64px); }
 .stage:not([data-zoom="fit"]) { place-items: start; }
 .empty { color: var(--muted); display: flex; gap: 12px; align-items: center; }
 .bottom { display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 16px; border-top: 1px solid var(--border); background: var(--bg); }
@@ -203,7 +206,7 @@ h4 { margin: 16px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .08e
 .m-nav { display: none; }
 @media (max-width: 700px) {
   body { font-size: 14px; }
-  .app { grid-template: 56px 42vh 1fr 76px / 1fr; grid-template-areas: "top" "center" "right" "nav"; }
+  .app { grid-template: 56px 42vh minmax(0, 1fr) 76px / minmax(0, 1fr); grid-template-areas: "top" "center" "right" "nav"; }
   .app.lib { grid-template: 56px 1fr 76px / 1fr; grid-template-areas: "top" "main" "nav"; }
   .app.lib .library, .app.lib .cull { grid-area: main; }
   .app > .left, .app > .film, .app .bottom, .right .hist, .right .exif, .right .tools { display: none; }
@@ -215,6 +218,8 @@ h4 { margin: 16px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .08e
   .m-sub { font: 11px var(--mono); color: var(--muted); font-weight: 400; }
   .m-h1 { margin: 0 8px; font-size: 28px; font-weight: 700; }
   .stage { padding: 0; }
+  .stage[data-zoom="fit"] canvas { inset: 8px; max-width: calc(100% - 16px); max-height: calc(100% - 16px); }
+  .center { overflow: hidden; }
   .stage-loader { height: 100%; }
   .mini-hist { position: absolute; left: 12px; bottom: 12px; width: 96px; height: 32px; border-radius: 6px; background: rgba(15,15,16,.7); z-index: 2; }
   .m-compare { position: absolute; right: 12px; bottom: 12px; z-index: 2; height: 36px; border-radius: 18px; background: rgba(15,15,16,.8); color: var(--text); font-weight: 600; font-size: 12px; }

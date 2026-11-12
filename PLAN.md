@@ -67,6 +67,8 @@ Tone curve (parametric + point) → Color Mixer (HSL) → Color Grading → Deta
 - ✅ Done: Library → Select → Sync settings… (groups, per-photo auto exposure, WB as offset from as-shot, crop skipped on orientation mismatch, preview grid, failures listed) · Export dialog (Develop + Library selection) with built-in + saved presets, JPEG/WebP/AVIF/TIFF, long edge, output sharpening, watermark, folder output for batches · "On import" preset + Auto with a summary toast; sidecar edits are never overwritten.
 
 ## Phase 8 — Optional
+- ✅ Whole-library export/import: Library → Back up edits / Restore edits… (one JSON: every sidecar + albums, ratings, flags, full history; restore matches by file name + dimensions and lists what didn't match).
+- Next: global AI off switch + opt-in on-device modules, E2E sync, native shells.
 E2E-encrypted sync (CRDT edit log), opt-in on-device AI modules (masking, denoise, remove) with a global off switch, Tauri/Capacitor shells (memory-card eject, haptics on iOS), whole-library export/import.
 
 ---

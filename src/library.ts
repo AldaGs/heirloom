@@ -158,3 +158,29 @@ export const albumsOf = (ps: Photo[]) => [...new Set(ps.map(p => p.album).filter
 export const byDate = (a: Photo, b: Photo) => b.date - a.date;
 
 export const photoKey = (p: Photo) => (p.src.kind === 'handle' ? `${p.src.folder}/${p.name}` : p.id);
+
+// ---- Whole-library export / import (Phase 8, FIXER_IMPROVEMENTS §7) ----
+// Edits only (the same data as each sidecar, plus albums): originals stay where they are.
+export type LibraryFile = { app: 'heirloom-library'; version: 1; exported: number; photos: (ReturnType<typeof JSON.parse> & { w: number; h: number; date: number })[] };
+
+export const exportLibrary = (ps: Photo[]) => JSON.stringify({
+  app: 'heirloom-library', version: 1, exported: Date.now(),
+  photos: ps.map(p => ({ ...JSON.parse(toSidecar(p)), w: p.w, h: p.h, date: p.date })),
+} satisfies LibraryFile, null, 1);
+
+/** Match entries to photos by file name + dimensions (name alone if unique). Returns updated photos and what didn't match. */
+export function importLibrary(ps: Photo[], text: string) {
+  const j = JSON.parse(text) as LibraryFile;
+  if (j?.app !== 'heirloom-library' || !Array.isArray(j.photos)) throw new Error('Not a Heirloom library file');
+  const byName = new Map<string, Photo[]>();
+  for (const p of ps) byName.set(p.name, [...(byName.get(p.name) ?? []), p]);
+  const updates = new Map<string, Photo>(), missing: string[] = [];
+  for (const e of j.photos) {
+    const c = byName.get(e.file) ?? [];
+    const hit = c.filter(p => (p.w === e.w && p.h === e.h) || (p.w === e.h && p.h === e.w));
+    const p = hit.length === 1 ? hit[0] : c.length === 1 ? c[0] : undefined;
+    if (!p || updates.has(p.id)) { missing.push(e.file + (c.length > 1 ? ' (ambiguous)' : '')); continue; }
+    updates.set(p.id, applySidecar(p, JSON.stringify(e)));
+  }
+  return { photos: ps.map(p => updates.get(p.id) ?? p), matched: updates.size, total: j.photos.length, missing };
+}

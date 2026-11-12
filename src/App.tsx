@@ -10,7 +10,7 @@ import { useMedia, usePref } from './prefs.ts';
 import { decodeRaw, fmtShutter } from './raw.ts';
 import { db } from './db.ts';
 import { decodeBitmap } from './decode.ts';
-import { isEdited, FILTERS, albumsOf, inAlbum, byDate, withPreview, LABELS, LABEL_COLORS, base, buildPhoto, canOpenFolders, fileOf, importFolder, isImage, loadFolders, photoKey, writeSidecar, type Folder, type Photo } from './library.ts';
+import { exportLibrary, importLibrary, isEdited, FILTERS, albumsOf, inAlbum, byDate, withPreview, LABELS, LABEL_COLORS, base, buildPhoto, canOpenFolders, fileOf, importFolder, isImage, loadFolders, photoKey, writeSidecar, type Folder, type Photo } from './library.ts';
 import { Library } from './Library.tsx';
 import { Cull } from './Cull.tsx';
 import { ExportDialog, SyncDialog } from './Batch.tsx';
@@ -224,6 +224,23 @@ export function App() {
   const exportJpeg = () => { if (cur) setDialog({ kind: 'export', ids: [cur.id] }); };
   const applySync = (vs: Map<string, Values>, label: string) => setPhotos(ps => ps.map(p => (vs.has(p.id) ? push(p, vs.get(p.id)!, label) : p)));
 
+  const backup = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([exportLibrary(photos)], { type: 'application/json' }));
+    a.download = `heirloom-library-${new Date().toISOString().slice(0, 10)}.json`; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  };
+  const restore = () => {
+    const i = document.createElement('input'); i.type = 'file'; i.accept = '.json,application/json';
+    i.onchange = async () => {
+      try {
+        const r = importLibrary(photos, await i.files![0].text());
+        setPhotos(r.photos);
+        setToast({ msg: `Restored edits for ${r.matched} of ${r.total} photos in the backup.`, fails: r.missing.map(m => `${m}: not in this library — import it first`) });
+      } catch (e) { setToast({ msg: "Couldn't restore", fails: [(e as Error).message] }); }
+    };
+    i.click();
+  };
   const moveTo = (ids: Set<string>, a: string) => setPhotos(ps => ps.map(p => (ids.has(p.id) ? { ...p, album: a || undefined } : p)));
   const clearLibrary = async () => {
     if (!confirm(`Remove all ${photos.length} photos from Heirloom? Edits stay in the .heirloom sidecars of opened folders; files imported without a folder lose their edits.`)) return;
@@ -289,7 +306,7 @@ export function App() {
       {mode === 'library' && (
         <Library photos={photos} filter={filter} setFilter={setFilter} onOpen={id => { setCurId(id); setMode('develop'); }}
           onImport={() => fileIn.current!.click()} onOpenFolder={canOpenFolders() ? openFolder : undefined}
-          albums={albumsOf(photos)} album={album} setAlbum={setAlbum} onMove={moveTo} onClear={clearLibrary}
+          albums={albumsOf(photos)} album={album} setAlbum={setAlbum} onMove={moveTo} onClear={clearLibrary} onBackup={backup} onRestore={restore}
           onExport={ids => setDialog({ kind: 'export', ids })} onSync={ids => setDialog({ kind: 'sync', ids: ids.filter(id => id !== curId) })} syncSource={curId ?? undefined}
           importPreset={importPreset} setImportPreset={setImportPreset} importAuto={importAuto} setImportAuto={setImportAuto} />
       )}

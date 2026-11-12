@@ -38,3 +38,13 @@ assert.deepEqual([...t.slice(-6)], [10, 20, 30, 40, 50, 60]);
 const flat = new Uint8ClampedArray(3 * 3 * 4).fill(100); sharpenRGBA(flat, 3, 3, 3);
 assert.ok(flat.every(x => x === 100), 'sharpening leaves flat areas alone');
 console.log('batch ok');
+
+// library backup round-trip
+const { exportLibrary, importLibrary } = await import('./library.ts');
+const mk = (id: string, name: string, w = 600, h = 400) => ({ id, name, w, h, asShot: 5500, date: 0, raw: false, exif: {}, src: { kind: 'blob' }, v: defaults(), hist: [{ label: 'Import', v: defaults(), t: 0 }], hi: 0, rating: 0, flag: false, label: 0 }) as any;
+const edited = { ...mk('a', 'x.jpg'), v: { ...defaults(), exposure: 1.5 }, rating: 4, album: 'Trip' };
+const file = exportLibrary([edited, mk('b', 'y.jpg')]);
+const res = importLibrary([mk('1', 'x.jpg'), mk('2', 'z.jpg')], file);
+assert.equal(res.matched, 1); assert.deepEqual(res.missing, ['y.jpg']);
+assert.equal(res.photos[0].v.exposure, 1.5); assert.equal(res.photos[0].rating, 4); assert.equal(res.photos[0].album, 'Trip');
+console.log('library backup ok');
