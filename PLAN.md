@@ -63,6 +63,8 @@ Tone curve (parametric + point) → Color Mixer (HSL) → Color Grading → Deta
 - Sync settings to selection with **batch preview grid**, failures listed per photo.
 - Export presets: size, JPEG/AVIF/WebP/TIFF, output sharpening, watermark.
 - Import presets with a per-step summary afterwards.
+- HEIC/HEIF decode: native where the browser has it (Safari), else libheif WASM (`heic-to`), lazy-loaded.
+- ✅ Done: Library → Select → Sync settings… (groups, per-photo auto exposure, WB as offset from as-shot, crop skipped on orientation mismatch, preview grid, failures listed) · Export dialog (Develop + Library selection) with built-in + saved presets, JPEG/WebP/AVIF/TIFF, long edge, output sharpening, watermark, folder output for batches · "On import" preset + Auto with a summary toast; sidecar edits are never overwritten.
 
 ## Phase 8 — Optional
 E2E-encrypted sync (CRDT edit log), opt-in on-device AI modules (masking, denoise, remove) with a global off switch, Tauri/Capacitor shells (memory-card eject, haptics on iOS), whole-library export/import.

@@ -4,7 +4,7 @@
   "description": "",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && node src/history.test.ts && node src/noise.test.ts && vite build",
+    "build": "tsc --noEmit && node src/history.test.ts && node src/noise.test.ts && node src/batch.test.ts && vite build",
     "preview": "vite preview"
   },
   "keywords": [],
@@ -12,6 +12,7 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "heic-to": "^1.6.7",
     "libraw-wasm": "^1.6.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

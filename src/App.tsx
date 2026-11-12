@@ -9,9 +9,13 @@ import { GEOMETRY } from './sliders.ts';
 import { useMedia, usePref } from './prefs.ts';
 import { decodeRaw, fmtShutter } from './raw.ts';
 import { db } from './db.ts';
-import { FILTERS, albumsOf, inAlbum, byDate, withPreview, LABELS, LABEL_COLORS, base, buildPhoto, canOpenFolders, fileOf, importFolder, isImage, loadFolders, photoKey, writeSidecar, type Folder, type Photo } from './library.ts';
+import { decodeBitmap } from './decode.ts';
+import { isEdited, FILTERS, albumsOf, inAlbum, byDate, withPreview, LABELS, LABEL_COLORS, base, buildPhoto, canOpenFolders, fileOf, importFolder, isImage, loadFolders, photoKey, writeSidecar, type Folder, type Photo } from './library.ts';
 import { Library } from './Library.tsx';
 import { Cull } from './Cull.tsx';
+import { ExportDialog, SyncDialog } from './Batch.tsx';
+import { developPreview } from './render.ts';
+import type { Values } from './sliders.ts';
 import { NoiseField, ProceduralImageLoader } from './ProceduralImageLoader.tsx';
 
 type Zoom = 'fit' | 1 | 2;
@@ -45,6 +49,11 @@ export function App() {
   const view = useRef<HTMLCanvasElement>(null), stage = useRef<HTMLDivElement>(null);
   const histC = useRef<HTMLCanvasElement>(null), navC = useRef<HTMLCanvasElement>(null);
   const fileIn = useRef<HTMLInputElement>(null);
+  const [dialog, setDialog] = useState<{ kind: 'export' | 'sync'; ids: string[] } | null>(null);
+  const [toast, setToast] = useState<{ msg: string; fails: string[] } | null>(null);
+  const [importPreset, setImportPreset] = usePref('importPreset', 'Original');
+  const [importAuto, setImportAuto] = usePref('importAuto', false);
+  useEffect(() => { if (toast && !toast.fails.length) { const t = setTimeout(() => setToast(null), 8000); return () => clearTimeout(t); } }, [toast]);
   const pipe = useRef<ReturnType<typeof createPipeline>>();
   const cur = photos.find(p => p.id === curId);
 
@@ -90,8 +99,31 @@ export function App() {
   }, [photos]);
   useEffect(() => { if (curId) db.set('lastPhoto', curId); }, [curId]);
 
-  const addPhotos = (added: Photo[]) => {
+  /** Import preset + per-photo auto, checked step by step, with a summary afterwards (FIXER_IMPROVEMENTS §5). */
+  const applyImport = async (added: Photo[]) => {
+    const pr = PRESETS.find(p => p.name === importPreset && p.name !== 'Original');
+    if (!added.length || (!pr && !importAuto)) return added;
+    const out: Photo[] = [], fails: string[] = [];
+    let kept = 0, preset = 0, auto = 0;
+    for (const [i, p] of added.entries()) {
+      if (isEdited(p)) { kept++; out.push(p); continue; } // sidecar edits win over the import preset
+      setBusy(`Applying import settings ${i + 1} / ${added.length}…`);
+      let v: Values = { ...base(p), ...pr?.v };
+      if (pr) preset++;
+      if (importAuto) {
+        try { v = (await developPreview(p, a => ({ ...v, exposure: +a().toFixed(2) }))).v; auto++; }
+        catch (e) { fails.push(`${p.name}: auto exposure skipped (${(e as Error).message})`); }
+      }
+      out.push(push(p, v, [pr && `Import preset: ${pr.name}`, importAuto && 'Auto'].filter(Boolean).join(' + ')));
+    }
+    const n = added.length, steps = [pr && `preset “${pr.name}” ${preset} of ${n}`, importAuto && `auto exposure ${auto} of ${n}`, kept && `${kept} kept their sidecar edits`].filter(Boolean);
+    setToast({ msg: `Imported ${n} photo${n === 1 ? '' : 's'}: ${steps.join(' · ')}`, fails });
+    return out;
+  };
+
+  const addPhotos = async (added: Photo[]) => {
     if (!added.length) return;
+    added = await applyImport(added); setBusy('');
     setPhotos(ps => [...ps, ...added.map(withUrl)]);
     setCurId(id => id ?? added[0].id);
   };
@@ -105,7 +137,7 @@ export function App() {
       catch (e) { alert(`Couldn't open ${file.name}: ${(e as Error).message}`); }
     }
     setBusy('');
-    addPhotos(added);
+    await addPhotos(added);
   };
 
   const openFolder = async () => {
@@ -114,7 +146,7 @@ export function App() {
       for (const f of await loadFolders()) {
         if (!granted.current.has(f.key) && (await f.handle.queryPermission({ mode: 'readwrite' })) === 'granted') granted.current.set(f.key, f.handle);
       }
-      addPhotos(added);
+      await addPhotos(added);
     } catch (e) { if ((e as Error).name !== 'AbortError') alert((e as Error).message); }
     setBusy('');
   };
@@ -135,7 +167,7 @@ export function App() {
     (async () => {
       const file = await fileOf(cur).catch(() => { throw new Error('reconnect its folder first (button in the top bar).'); });
       if (cur.raw) { const r = await decodeRaw(file); if (live) await pipe.current!.load({ kind: 'raw', ...r }); }
-      else { const bmp = await createImageBitmap(file); if (live) await pipe.current!.load({ kind: 'bitmap', bmp }); bmp.close(); }
+      else { const bmp = await decodeBitmap(file, cur.name); if (live) await pipe.current!.load({ kind: 'bitmap', bmp }); bmp.close(); }
       if (live) { setLoadedId(cur.id); setZoom('fit'); }
     })().catch(e => alert(`Couldn't decode ${cur.name}: ${e.message}`)).finally(() => setBusy(''));
     return () => { live = false; };
@@ -189,15 +221,8 @@ export function App() {
     const exposure = Math.round(autoExposure(histogram(view.current)) / 0.05) * 0.05;
     update(p => push(p, { ...p.v, exposure: +exposure.toFixed(2) }, 'Auto'));
   };
-  const exportJpeg = () => {
-    if (!cur || !view.current) return;
-    pipe.current!.render(cur.v, cur.asShot);
-    view.current.toBlob(b => {
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(b!); a.download = cur.name.replace(/\.[^.]+$/, '') + '-heirloom.jpg'; a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    }, 'image/jpeg', 0.95);
-  };
+  const exportJpeg = () => { if (cur) setDialog({ kind: 'export', ids: [cur.id] }); };
+  const applySync = (vs: Map<string, Values>, label: string) => setPhotos(ps => ps.map(p => (vs.has(p.id) ? push(p, vs.get(p.id)!, label) : p)));
 
   const moveTo = (ids: Set<string>, a: string) => setPhotos(ps => ps.map(p => (ids.has(p.id) ? { ...p, album: a || undefined } : p)));
   const clearLibrary = async () => {
@@ -264,7 +289,9 @@ export function App() {
       {mode === 'library' && (
         <Library photos={photos} filter={filter} setFilter={setFilter} onOpen={id => { setCurId(id); setMode('develop'); }}
           onImport={() => fileIn.current!.click()} onOpenFolder={canOpenFolders() ? openFolder : undefined}
-          albums={albumsOf(photos)} album={album} setAlbum={setAlbum} onMove={moveTo} onClear={clearLibrary} />
+          albums={albumsOf(photos)} album={album} setAlbum={setAlbum} onMove={moveTo} onClear={clearLibrary}
+          onExport={ids => setDialog({ kind: 'export', ids })} onSync={ids => setDialog({ kind: 'sync', ids: ids.filter(id => id !== curId) })} syncSource={curId ?? undefined}
+          importPreset={importPreset} setImportPreset={setImportPreset} importAuto={importAuto} setImportAuto={setImportAuto} />
       )}
 
       {mode === 'cull' && (
@@ -412,6 +439,14 @@ export function App() {
         <button className="add" onClick={() => fileIn.current!.click()} aria-label="Import photos">+</button>
         <input ref={fileIn} type="file" multiple hidden onChange={e => { addFiles(e.target.files!); e.target.value = ''; }} />
       </footer>
+      {dialog?.kind === 'export' && <ExportDialog photos={dialog.ids.map(id => photos.find(p => p.id === id)!).filter(Boolean)} onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'sync' && cur && <SyncDialog source={cur} targets={dialog.ids.map(id => photos.find(p => p.id === id)!).filter(Boolean)} onApply={applySync} onClose={() => setDialog(null)} />}
+      {toast && (
+        <div className="toast" role="status">
+          <div>{toast.msg}{toast.fails.length > 0 && <ul>{toast.fails.map(f => <li key={f}>{f}</li>)}</ul>}</div>
+          <button className="ghost" onClick={() => setToast(null)} aria-label="Dismiss">✕</button>
+        </div>
+      )}
     </div>
   );
 }
