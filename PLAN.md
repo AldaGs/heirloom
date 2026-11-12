@@ -79,7 +79,8 @@ Tone curve (parametric + point) → Color Mixer (HSL) → Color Grading → Deta
   - Local adjustments design: 4 mask slots packed into one RGBA8 texture (source frame, ≤2048 px, linear-filtered soft edges from the decoder's logits). Each slot has Exposure, Temp, Tint, Contrast, Highlights, Shadows, Clarity, Saturation + Invert as ordinary numeric settings (`m{i}_*`), so history/sidecar/presets/sync handle them for free (sync group "Mask adjustments" off by default). The shader adds mask-weighted offsets to the global values.
   - Mask images are versioned like AI layers: history steps carry `mk` (id per slot), sidecars write `<photo>.<id>.mask.png`. Undo/redo restore shapes; export and sync previews apply masks.
   - Keyboard shortcuts now ignore only text fields (Ctrl+Z after toggling a checkbox works).
-- Next: E2E sync. Tauri/Capacitor shells skipped for now. Masking follow-ups: brush refine, linear/radial gradients, per-mask feather.
+- ✅ Masking extras: linear + radial gradient masks (drag, live low-res preview), brush masks and "Refine with brush" (Add/Subtract, each stroke merged on release so the tint shows the real result), per-mask Feather (mask texture mipmaps, sampled per channel), Show mask. The Masking tab no longer needs AI; only "Select subject" does.
+- Next: E2E sync. Tauri/Capacitor shells skipped for now.
 E2E-encrypted sync (CRDT edit log), opt-in on-device AI modules (masking, denoise, remove) with a global off switch, Tauri/Capacitor shells (memory-card eject, haptics on iOS), whole-library export/import.
 
 ---

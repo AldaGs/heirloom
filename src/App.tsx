@@ -19,7 +19,9 @@ import { aiEnabled, onAiChange, setAiEnabled } from './ai.ts';
 import { developPreview, maskData } from './render.ts';
 import type { Values } from './sliders.ts';
 import { DenoisePanel, RemoveOverlay, RemovePanel } from './Remove.tsx';
-import { MaskOverlay, MaskPanel } from './Mask.tsx';
+import { MaskOverlay, MaskPanel, type MaskMode } from './Mask.tsx';
+import { applyBrush, emptyMask, linearMask, radialMask, type Pt2 } from './mask-shapes.ts';
+import { maskSize } from './sam-core.ts';
 import { MASKS, MASK_ADJ, maskKey } from './sliders.ts';
 import type { Pt } from './sam-core.ts';
 import { NoiseField, ProceduralImageLoader } from './ProceduralImageLoader.tsx';
@@ -64,7 +66,7 @@ export function App() {
   const [ai, setAi] = useState(aiEnabled);
   useEffect(() => onAiChange(setAi), []);
   const removing = mode === 'develop' && tool === 'remove' && ai;
-  const masking = mode === 'develop' && tool === 'mask' && ai;
+  const masking = mode === 'develop' && tool === 'mask'; // gradients + brush work without AI; only Select subject needs it
   const sourceView = removing || masking; // tools that work in the source frame: unrotated, uncropped
   const [toast, setToast] = useState<{ msg: string; fails: string[] } | null>(null);
   const [importPreset, setImportPreset] = usePref('importPreset', 'Original');
@@ -197,13 +199,14 @@ export function App() {
 
   // Masks: decode the current step's mask images and hand them to the GPU (on load, edit, undo/redo)
   const [maskVer, setMaskVer] = useState(0);
+  const [maskImgs, setMaskImgs] = useState<(ImageData | undefined)[]>([]);
   useEffect(() => {
     if (!cur || loadedId !== cur.id || !pipe.current) return;
     let live = true;
     (async () => {
       const imgs = await maskData(cur);
       if (!live) return;
-      pipe.current!.setMasks(imgs); setMaskVer(x => x + 1);
+      pipe.current!.setMasks(imgs); setMaskImgs(imgs); setMaskVer(x => x + 1);
     })();
     return () => { live = false; };
   }, [cur?.masks, loadedId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -385,43 +388,64 @@ export function App() {
     } catch (e) { setDnMsg((e as Error).name === 'AbortError' ? 'Cancelled — nothing changed.' : `Couldn't denoise: ${(e as Error).message}`); }
     setDn(null); dnAbort.current = null;
   };
-  // AI Masking (MobileSAM): analyse once per photo state, then each click re-segments in a fraction of a second
+  // Masking: AI subject (MobileSAM), linear/radial gradients, brush. Each new or changed mask is a history step.
   const [maskSel, setMaskSel] = useState(0);
-  const [pick, setPick] = useState<{ slot: number; pts: Pt[]; preview?: ImageData } | null>(null);
+  const [mMode, setMMode] = useState<MaskMode>({ kind: 'idle' });
+  const [pick, setPick] = useState<{ pts: Pt[]; preview?: ImageData }>({ pts: [] });
+  const [work, setWork] = useState<{ slot: number; img: ImageData; label: string } | null>(null); // brush target
+  const [showMask, setShowMask] = useState(false);
   const [mkBusy, setMkBusy] = useState(false), [mkMsg, setMkMsg] = useState('');
+  const mBrush = useRef<HTMLCanvasElement | null>(null);
   const embKey = cur ? `${cur.id}:${cur.hist[cur.hi].rt ?? ''}` : '';
   const slots = Array.from({ length: MASKS }, (_, i) => !!cur?.masks?.[i]);
-  const newMask = async () => {
-    if (!cur || !pipe.current) return;
-    const slot = slots.indexOf(false); if (slot < 0) return;
+  const freeSlot = slots.indexOf(false);
+  const mSize = view.current && masking ? maskSize(view.current.width, view.current.height) : { w: 1, h: 1 };
+  const endMaskEdit = () => { setMMode({ kind: 'idle' }); setPick({ pts: [] }); setWork(null); };
+  const commitMask = async (slot: number, img: ImageData, label: string) => {
+    const c = new OffscreenCanvas(img.width, img.height); c.getContext('2d')!.putImageData(img, 0, 0);
+    const blob = await c.convertToBlob({ type: 'image/png' }), id = crypto.randomUUID().slice(0, 8);
+    update(p => {
+      const mk = [...(p.hist[p.hi].mk ?? Array(MASKS).fill(''))]; mk[slot] = id;
+      return syncLayers(pushStep({ ...p, layers: { ...p.layers, [id]: blob } }, label, { mk }));
+    });
+    setMaskSel(slot); endMaskEdit();
+  };
+  const newMask = async () => { // AI subject
+    if (!cur || !pipe.current || freeSlot < 0) return;
     setMkBusy(true); setMkMsg('Analysing photo… (first run downloads ~25 MB)');
     try {
       const { embed } = await import('./sam.ts');
       await embed(embKey, pipe.current.baseImage());
-      setPick({ slot, pts: [] }); setMkMsg('Click the subject.');
+      setPick({ pts: [] }); setMMode({ kind: 'pick' }); setMkMsg('');
     } catch (e) { setMkMsg(`Couldn't analyse: ${(e as Error).message}`); }
     setMkBusy(false);
   };
   const addPoint = async (pt: Pt) => {
-    if (!pick) return;
-    const pts = [...pick.pts, pt]; setPick({ ...pick, pts }); setMkBusy(true);
-    try { const { segment } = await import('./sam.ts'); const preview = await segment(embKey, pts); setPick(pk => pk && { ...pk, pts, preview }); setMkMsg(''); }
+    const pts = [...pick.pts, pt]; setPick(pk => ({ ...pk, pts })); setMkBusy(true);
+    try { const { segment } = await import('./sam.ts'); const preview = await segment(embKey, pts); setPick({ pts, preview }); setMkMsg(''); }
     catch (e) { setMkMsg(`Couldn't select: ${(e as Error).message}`); }
     setMkBusy(false);
   };
-  const finishMask = async () => {
-    if (!pick?.preview || !cur) { setMkMsg('Click the subject first.'); return; }
-    const c = new OffscreenCanvas(pick.preview.width, pick.preview.height); c.getContext('2d')!.putImageData(pick.preview, 0, 0);
-    const blob = await c.convertToBlob({ type: 'image/png' }), id = crypto.randomUUID().slice(0, 8), slot = pick.slot;
-    update(p => {
-      const mk = [...(p.hist[p.hi].mk ?? Array(MASKS).fill(''))]; mk[slot] = id;
-      return syncLayers(pushStep({ ...p, layers: { ...p.layers, [id]: blob } }, `Mask ${slot + 1}`, { mk }));
-    });
-    setMaskSel(slot); setPick(null); setMkMsg('Mask added. Adjust it below.');
+  const finishMask = () => { if (!pick.preview) { setMkMsg('Click the subject first.'); return; } commitMask(freeSlot, pick.preview, `Mask ${freeSlot + 1} (subject)`); setMkMsg('Mask added. Adjust it below.'); };
+  const onShape = (kind: 'linear' | 'radial', a: Pt2, b: Pt2) => {
+    const m = kind === 'linear' ? linearMask(mSize.w, mSize.h, a, b) : radialMask(mSize.w, mSize.h, a, b);
+    commitMask(freeSlot, new ImageData(m.data, m.width, m.height), `Mask ${freeSlot + 1} (${kind})`); setMkMsg('Mask added. Adjust it below.');
+  };
+  const startBrush = (slot: number, img: ImageData | undefined, label: string) => {
+    const base = img ?? new ImageData(emptyMask(mSize.w, mSize.h).data, mSize.w, mSize.h);
+    setWork({ slot, img: base, label }); setMMode({ kind: 'brush', add: true, size: 4 });
+  };
+  // each finished stroke is merged right away, so the tint shows the real result and Add/Subtract can be switched mid-edit
+  const strokeEnd = () => {
+    const b = mBrush.current; if (!b || !work || mMode.kind !== 'brush') return;
+    const stroke = b.getContext('2d')!.getImageData(0, 0, b.width, b.height);
+    const merged = applyBrush(work.img, stroke, mMode.add);
+    b.getContext('2d')!.clearRect(0, 0, b.width, b.height);
+    setWork({ ...work, img: new ImageData(merged.data, merged.width, merged.height) });
   };
   const deleteMask = (i: number) => update(p => {
     const mk = [...(p.hist[p.hi].mk ?? Array(MASKS).fill(''))]; mk[i] = '';
-    const v = { ...p.v, ...Object.fromEntries([...MASK_ADJ.map(([k]) => k), 'inv'].map(k => [maskKey(i, k), 0])) };
+    const v = { ...p.v, ...Object.fromEntries([...MASK_ADJ.map(([k]) => k), 'inv', 'feather'].map(k => [maskKey(i, k), 0])) };
     return syncLayers(pushStep(p, `Delete mask ${i + 1}`, { mk, v }));
   });
 
@@ -571,7 +595,9 @@ export function App() {
           <span className="shimmer-text" role="status">{busy || 'Developing…'}</span>
         </div>
         {masking && cur && view.current && loadedId === cur.id && (
-          <MaskOverlay canvas={view.current} picking={!!pick} pts={pick?.pts ?? []} mask={pick ? pick.preview : undefined} onPoint={addPoint} />
+          <MaskOverlay canvas={view.current} mode={mMode} pts={mMode.kind === 'pick' ? pick.pts : []} maskW={work?.img.width ?? mSize.w} maskH={work?.img.height ?? mSize.h} brushRef={mBrush}
+            mask={mMode.kind === 'pick' ? pick.preview : mMode.kind === 'brush' ? work?.img : showMask ? maskImgs[maskSel] : undefined}
+            onPoint={addPoint} onShape={onShape} onStrokeEnd={strokeEnd} />
         )}
         {removing && cur && view.current && loadedId === cur.id && <RemoveOverlay canvas={view.current} brushRef={brushRef} size={brush} />}
         {cropping && cur && view.current && loadedId === cur.id && (
@@ -627,13 +653,17 @@ export function App() {
           <ToolTab id="crop" tool={tool} setTool={setTool} label="Crop & straighten (R)" d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14" />
           {ai && <ToolTab id="denoise" tool={tool} setTool={setTool} label="AI Denoise (on-device)" d="M4 4h2v2H4zM10 4h2v2h-2zM16 4h2v2h-2zM7 10h2v2H7zM13 10h2v2h-2zM4 16h2v2H4zM10 16h2v2h-2zM16 16h2v2h-2zM19 10h2v2h-2z" />}
           {ai && <ToolTab id="remove" tool={tool} setTool={setTool} label="Remove (AI, on-device)" d="m3 21 12-12M15 4V2M15 10V8M19 6h2M11 6h2M17.5 3.5 19 2M17.5 8.5 19 10" />}
-          {ai && <ToolTab id="mask" tool={tool} setTool={setTool} label="Masking (AI, on-device)" d="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" />}
+          <ToolTab id="mask" tool={tool} setTool={setTool} label="Masking" d="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" />
           <ToolTab id="info" tool={tool} setTool={setTool} label="Info (EXIF)" d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" />
         </div>
         {masking && cur ? (
-          <MaskPanel slots={slots} sel={maskSel} setSel={setMaskSel} picking={!!pick} busy={mkBusy} msg={mkMsg} v={cur.v} byKey={byKey}
-            setVal={setVal} commit={commit} onNew={newMask} onFinish={finishMask} onCancel={() => { setPick(null); setMkMsg(''); }}
-            onDelete={deleteMask} done={() => { setPick(null); setTool('edit'); }} />
+          <MaskPanel ai={ai} slots={slots} sel={maskSel} setSel={setMaskSel} mode={mMode} setMode={setMMode} busy={mkBusy} msg={mkMsg} v={cur.v} byKey={byKey}
+            setVal={setVal} commit={commit} showMask={showMask} setShowMask={setShowMask}
+            onAI={newMask} onFinishAI={finishMask} onCancel={() => { endMaskEdit(); setMkMsg(''); }}
+            onLinear={() => setMMode({ kind: 'linear' })} onRadial={() => setMMode({ kind: 'radial' })}
+            onBrushNew={() => startBrush(freeSlot, undefined, `Mask ${freeSlot + 1} (brush)`)} onRefine={() => startBrush(maskSel, maskImgs[maskSel], `Refine mask ${maskSel + 1}`)}
+            onApplyBrush={() => work && commitMask(work.slot, work.img, work.label)}
+            onDelete={deleteMask} done={() => { endMaskEdit(); setTool('edit'); }} />
         ) : tool === 'denoise' && ai && cur ? (
           <DenoisePanel strength={dnStrength} setStrength={setDnStrength} progress={dn} msg={dnMsg} pixels={cur.w * cur.h}
             onRun={runDenoise} onCancel={() => dnAbort.current?.abort()} done={() => setTool('edit')} />
@@ -665,7 +695,7 @@ export function App() {
           <MNav icon="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z" label="Presets" on={tool === 'presets'} onClick={() => setTool('presets')} />
           <MNav icon="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14" label="Crop" on={tool === 'crop'} onClick={() => setTool('crop')} />
           <MNav icon="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M16 4v4M10 10v4M18 16v4" label="Edit" on={tool === 'edit' || tool === 'info'} onClick={() => setTool('edit')} />
-          {ai && <MNav icon="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" label="Masking" on={tool === 'mask'} onClick={() => setTool('mask')} />}
+          <MNav icon="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" label="Masking" on={tool === 'mask'} onClick={() => setTool('mask')} />
           {ai && <MNav icon="M4 4h2v2H4zM10 4h2v2h-2zM16 4h2v2h-2zM7 10h2v2H7zM13 10h2v2h-2zM4 16h2v2H4zM10 16h2v2h-2z" label="Denoise" on={tool === 'denoise'} onClick={() => setTool('denoise')} />}
           {ai && <MNav icon="m3 21 12-12M15 4V2M15 10V8M19 6h2M11 6h2" label="Remove" on={tool === 'remove'} onClick={() => setTool('remove')} />}
         </nav>

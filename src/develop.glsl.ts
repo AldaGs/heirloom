@@ -5,7 +5,7 @@ export const SCALARS = ['temp', 'tint', 'exposure', 'contrast', 'highlights', 's
 const DEVELOP = `#version 300 es
 precision highp float;
 uniform sampler2D L, LUT, M; uniform bool isRaw;
-uniform float mkA[32]; uniform vec4 mkInv, mkOn; // masks: 4 slots × 8 local adjustments, packed in M's RGBA
+uniform float mkA[32]; uniform vec4 mkInv, mkOn, mkLod; // masks: 4 slots × 8 local adjustments, packed in M's RGBA
 uniform float lodTex, lodClar, lodHaze, lodSharp;
 uniform vec4 crop; uniform float angle, rotScale, aspect; uniform vec2 outSize; uniform int quarter; uniform vec2 flip; // aspect = rotated frame's
 uniform float ${SCALARS.map(n => 'u_' + n).join(',')};
@@ -46,7 +46,9 @@ void main(){
   if (any(lessThan(u, vec2(0.))) || any(greaterThan(u, vec2(1.)))) { o = vec4(0,0,0,1); return; }
 
   // Local adjustments: mask weights (source-frame) × each slot's settings, summed into offsets of the global ones
-  vec4 mw = mix(textureLod(M, u, 0.), 1. - textureLod(M, u, 0.), mkInv) * mkOn;
+  // feather = a blurrier mip level of that slot's channel
+  vec4 mw = vec4(textureLod(M, u, mkLod.x).r, textureLod(M, u, mkLod.y).g, textureLod(M, u, mkLod.z).b, textureLod(M, u, mkLod.w).a);
+  mw = mix(mw, 1. - mw, mkInv) * mkOn;
   float lE = 0., lT = 0., lTi = 0., lC = 0., lH = 0., lS = 0., lCl = 0., lSa = 0.;
   for (int i = 0; i < 4; i++) { float w = mw[i]; lE += w*mkA[i*8]; lT += w*mkA[i*8+1]; lTi += w*mkA[i*8+2]; lC += w*mkA[i*8+3];
     lH += w*mkA[i*8+4]; lS += w*mkA[i*8+5]; lCl += w*mkA[i*8+6]; lSa += w*mkA[i*8+7]; }

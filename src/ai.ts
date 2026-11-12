@@ -75,7 +75,7 @@ export async function modelInstalled(file: string) {
 
 /** Modules that will use the gate. Status is shown in Settings so users see exactly what the switch covers. */
 export const AI_MODULES = [
-  { id: 'mask', name: 'Masking', what: 'click to select any object or the sky, then adjust it' },
+  { id: 'mask', name: 'Select subject', what: 'Masking: click any object or the sky to mask it (gradients and brush work without AI)' },
   { id: 'remove', name: 'Remove', what: 'object & spot removal' },
   { id: 'denoise', name: 'AI Denoise', what: 'noise reduction beyond the Detail panel' },
 ] as const;

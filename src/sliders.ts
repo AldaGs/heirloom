@@ -68,6 +68,7 @@ export const maskKey = (i: number, k: string) => `m${i}_${k}`;
 SLIDERS.push(...Array.from({ length: MASKS }, (_, i) => [
   ...MASK_ADJ.map(([k, label, min, max, step]) => s(maskKey(i, k), `Mask ${i + 1} ${label}`, min, max, { step, hidden: true })),
   s(maskKey(i, 'inv'), `Mask ${i + 1} invert`, 0, 1, { hidden: true }),
+  s(maskKey(i, 'feather'), `Mask ${i + 1} Feather`, 0, 100, { hidden: true }),
 ]).flat());
 
 export const GEOMETRY = ['angle', 'flipH', 'flipV', 'cropX', 'cropY', 'cropW', 'cropH'];

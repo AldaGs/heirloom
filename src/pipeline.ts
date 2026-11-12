@@ -75,9 +75,9 @@ export function createPipeline(canvas: HTMLCanvasElement) {
   // Mask texture: channel i = mask slot i (1×1 empty until masks are set)
   const maskTex = gl.createTexture();
   gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, maskTex);
-  for (const [k, x] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, x);
+  for (const [k, x] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, x);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
-  let maskOn = [0, 0, 0, 0];
+  let maskOn = [0, 0, 0, 0], maskLevels = 0;
   gl.activeTexture(gl.TEXTURE0);
   let lin: WebGLTexture | null = null, isRaw = false, srcW = 1, srcH = 1, lods = { lodTex: 0, lodClar: 0, lodHaze: 0, lodSharp: 0 };
 
@@ -149,6 +149,8 @@ export function createPipeline(canvas: HTMLCanvasElement) {
         masks.forEach((m, i) => { if (m) for (let j = 0; j < w * h; j++) px[j * 4 + i] = m.data[j * 4]; });
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, px);
       }
+      gl.generateMipmap(gl.TEXTURE_2D); // mip levels = feathered versions
+      maskLevels = Math.floor(Math.log2(Math.max(first?.width ?? 1, first?.height ?? 1)));
       gl.activeTexture(gl.TEXTURE0);
     },
     /** The loaded image before any edits (retouch included), 8-bit sRGB, full loaded resolution, top row first. */
@@ -184,6 +186,8 @@ export function createPipeline(canvas: HTMLCanvasElement) {
       gl.uniform1fv(loc('mkA[0]'), maskUniforms(v));
       gl.uniform4fv(loc('mkInv'), Array.from({ length: MASKS }, (_, i) => (v[maskKey(i, 'inv')] ? 1 : 0)));
       gl.uniform4fv(loc('mkOn'), maskOn);
+      // Feather 100 ≈ 1/16 of the frame's long side (mask is ≤2048 px, so ~5 levels down)
+      gl.uniform4fv(loc('mkLod'), Array.from({ length: MASKS }, (_, i) => ((v[maskKey(i, 'feather')] ?? 0) / 100) * Math.max(0, maskLevels - 4)));
       const { quarter, rest } = orient(v.angle ?? 0), a = (rest * Math.PI) / 180, asp = quarter % 2 ? srcH / srcW : srcW / srcH;
       gl.uniform1i(loc('quarter'), quarter); gl.uniform2f(loc('flip'), v.flipH ? 1 : 0, v.flipV ? 1 : 0);
       gl.uniform4f(loc('crop'), cr[0], cr[1], cr[2], cr[3]);

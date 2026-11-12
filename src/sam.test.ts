@@ -17,3 +17,18 @@ const v = { ...defaults(), [maskKey(1, 'exposure')]: 1.5, [maskKey(1, 'contrast'
 const u = maskUniforms(v);
 assert.equal(u.length, 32); assert.equal(u[8], 1.5); assert.equal(u[11], 0.5); assert.ok(Math.abs(u[1] - 0.6) < 1e-9);
 console.log('sam ok');
+
+// procedural masks + brush
+const { linearMask, radialMask, applyBrush, emptyMask } = await import('./mask-shapes.ts');
+const at = (m: any, x: number, y: number) => m.data[(y * m.width + x) * 4];
+const lin = linearMask(100, 10, { x: .2, y: .5 }, { x: .8, y: .5 });
+assert.equal(at(lin, 5, 5), 255, 'before start: full'); assert.equal(at(lin, 95, 5), 0, 'past end: none');
+assert.ok(Math.abs(at(lin, 50, 5) - 127) < 6, 'halfway ≈ 50%');
+const rad = radialMask(100, 100, { x: .5, y: .5 }, { x: .9, y: .5 }, .5);
+assert.equal(at(rad, 50, 50), 255); assert.equal(at(rad, 99, 50), 0); assert.equal(at(rad, 60, 50), 255, 'inside inner radius'); 
+const br = { data: new Uint8ClampedArray(4 * 4), width: 2, height: 2 }; br.data[3] = 255; br.data[7] = 128;
+const m0 = emptyMask(2, 2); const added = applyBrush(m0, br, true);
+assert.deepEqual([added.data[0], added.data[4], added.data[8]], [255, 128, 0]);
+const sub = applyBrush(added, br, false);
+assert.deepEqual([sub.data[0], sub.data[4]], [0, 127]);
+console.log('mask shapes ok');
