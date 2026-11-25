@@ -155,6 +155,8 @@ export function App() {
     return out;
   };
 
+  // placeholder tiles shown in the library while files are being imported
+  const [pending, setPending] = useState<{ id: string; name: string }[]>([]);
   const addPhotos = async (added: Photo[]) => {
     if (!added.length) return;
     added = await applyImport(added); setBusy('');
@@ -164,14 +166,19 @@ export function App() {
 
   const addFiles = async (files: FileList | File[]) => {
     const added: Photo[] = [];
-    for (const file of Array.from(files)) {
-      if (!isImage(file.name, file.type)) continue;
+    const list = Array.from(files).filter(f => isImage(f.name, f.type));
+    const slots = list.map(f => ({ id: crypto.randomUUID(), name: f.name }));
+    setPending(ps => [...slots, ...ps]);
+    const drop = (ids: string[]) => setPending(ps => ps.filter(p => !ids.includes(p.id)));
+    try {
+    for (const [i, file] of list.entries()) {
       setBusy(`Importing ${file.name}…`);
       try { added.push(await buildPhoto(file, { kind: 'blob', blob: file })); }
-      catch (e) { alert(`Couldn't open ${file.name}: ${(e as Error).message}`); }
+      catch (e) { drop([slots[i].id]); alert(`Couldn't open ${file.name}: ${(e as Error).message}`); }
     }
     setBusy('');
     await addPhotos(added);
+    } finally { drop(slots.map(s => s.id)); }
   };
 
   const openFolder = async () => {
@@ -542,7 +549,7 @@ export function App() {
       )}
 
       {mode === 'library' && (
-        <Library photos={photos} filter={filter} setFilter={setFilter} onOpen={id => { setCurId(id); setMode('develop'); }}
+        <Library photos={photos} pending={pending} filter={filter} setFilter={setFilter} onOpen={id => { setCurId(id); setMode('develop'); }}
           onImport={() => fileIn.current!.click()} onOpenFolder={canOpenFolders() ? openFolder : undefined}
           albums={albumsOf(photos)} album={album} setAlbum={setAlbum} onMove={moveTo} onClear={clearLibrary} onBackup={backup} onRestore={restore}
           onExport={ids => setDialog({ kind: 'export', ids })} onSync={ids => setDialog({ kind: 'sync', ids: ids.filter(id => id !== curId) })} syncSource={curId ?? undefined}

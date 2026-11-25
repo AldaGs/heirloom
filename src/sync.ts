@@ -9,7 +9,7 @@ export const GROUPS: { id: string; label: string; keys: string[]; on: boolean }[
   { id: 'curve', label: 'Tone curve', keys: keysFrom('curveHighlights', 'hue_red'), on: true },
   { id: 'mixer', label: 'Color mixer', keys: keysFrom('hue_red', 'gradeShadowHue'), on: true },
   { id: 'grade', label: 'Color grading', keys: keysFrom('gradeShadowHue', 'vignette'), on: true },
-  { id: 'effects', label: 'Effects', keys: ['vignette', 'vignetteMid', 'grain'], on: true },
+  { id: 'effects', label: 'Effects', keys: ['vignette', 'vignetteMid', 'grain', 'grainSize', 'grainRough'], on: true },
   { id: 'detail', label: 'Detail', keys: ['sharpen', 'nrLuma', 'nrColor'], on: true },
   { id: 'optics', label: 'Optics', keys: ['distortion', 'ca'], on: true },
   { id: 'geometry', label: 'Crop & straighten', keys: GEOMETRY, on: false },
