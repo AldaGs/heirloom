@@ -43,7 +43,7 @@ export const SLIDERS: Slider[] = [
   s('gradeHighHue', 'Highlights hue', 0, 360, { track: RAINBOW, unit: '°' }), s('gradeHighSat', 'Highlights sat', 0, 100),
   s('gradeBalance', 'Balance'),
   // Effects
-  s('vignette', 'Vignette'), s('vignetteMid', 'Midpoint', 0, 100, { def: 50 }), s('grain', 'Grain', 0, 100),
+  s('vignette', 'Vignette'), s('vignetteMid', 'Midpoint', 0, 100, { def: 50 }), s('grain', 'Grain', 0, 100), s('grainSize', 'Size', 0, 100, { def: 25 }), s('grainRough', 'Roughness', 0, 100, { def: 50 }),
   // Detail
   s('sharpen', 'Sharpening', 0, 150), s('nrLuma', 'Noise reduction', 0, 100), s('nrColor', 'Color noise', 0, 100),
   // Optics

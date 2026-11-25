@@ -19,7 +19,7 @@ const SECTIONS: Record<string, Section> = {
   curve: { title: 'Tone curve', keys: [...PC, 'curveHighlights', 'curveLights', 'curveDarks', 'curveShadows'], items: ['#curve', 'curveHighlights', 'curveLights', 'curveDarks', 'curveShadows'] },
   mixer: { title: 'Color mixer', keys: MIXER, items: ['#mixer'] },
   grading: { title: 'Color grading', keys: ['gradeShadowHue', 'gradeShadowSat', 'gradeMidHue', 'gradeMidSat', 'gradeHighHue', 'gradeHighSat', 'gradeBalance'], items: ['gradeShadowHue', 'gradeShadowSat', 'gradeMidHue', 'gradeMidSat', 'gradeHighHue', 'gradeHighSat', 'gradeBalance'] },
-  effects: { title: 'Effects', keys: ['vignette', 'vignetteMid', 'grain'], items: ['vignette', 'vignetteMid', 'grain'] },
+  effects: { title: 'Effects', keys: ['vignette', 'vignetteMid', 'grain', 'grainSize', 'grainRough'], items: ['vignette', 'vignetteMid', 'grain', 'grainSize', 'grainRough'] },
   detail: { title: 'Detail', keys: ['sharpen', 'nrLuma', 'nrColor'], items: ['sharpen', 'nrLuma', 'nrColor'] },
   optics: { title: 'Optics', keys: ['distortion', 'ca'], items: ['distortion', 'ca'] },
   calibration: { title: 'Calibration', keys: ['shadowTint', 'redHue', 'redSat', 'greenHue', 'greenSat', 'blueHue', 'blueSat'], items: ['shadowTint', 'redHue', 'redSat', 'greenHue', 'greenSat', 'blueHue', 'blueSat'] },

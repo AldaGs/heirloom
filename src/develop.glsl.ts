@@ -1,6 +1,6 @@
 // Scalar slider uniforms (u_<key>, already normalized by uniforms()).
 export const SCALARS = ['temp', 'tint', 'exposure', 'contrast', 'highlights', 'shadows', 'whites', 'blacks', 'texture', 'clarity', 'dehaze', 'vibrance', 'saturation',
-  'vignette', 'vignetteMid', 'grain', 'sharpen', 'nrLuma', 'nrColor', 'distortion', 'ca', 'shadowTint', 'gradeBalance'];
+  'vignette', 'vignetteMid', 'grain', 'sharpen', 'nrLuma', 'nrColor', 'distortion', 'ca', 'shadowTint', 'gradeBalance', 'grainSize', 'grainRough'];
 
 const DEVELOP = `#version 300 es
 precision highp float;
@@ -10,6 +10,7 @@ uniform float lodTex, lodClar, lodHaze, lodSharp;
 uniform vec4 crop; uniform float angle, rotScale, aspect; uniform vec2 outSize; uniform int quarter; uniform vec2 flip; // aspect = rotated frame's
 uniform float ${SCALARS.map(n => 'u_' + n).join(',')};
 uniform float hueA[8], satA[8], lumA[8];
+float hash2(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 uniform mat3 calib; uniform vec3 gShadow, gMid, gHigh;
 in vec2 uv; out vec4 o;
 
@@ -136,7 +137,13 @@ void main(){
   float r = length(dv) / length(vec2(outSize.x / outSize.y, 1.) * .5);
   float m = smoothstep(u_vignetteMid * .9, 1.15, r);
   g = u_vignette < 0. ? g * (1. + u_vignette * m) : mix(g, vec3(1.), u_vignette * m);
-  float n = fract(sin(dot(floor(uv * outSize / 1.5), vec2(12.9898, 78.233))) * 43758.5453) - .5;
+  // Grain: size sets the cell in px (default 25 → 1.5 px); roughness blends smooth value noise (0) → blocky cells (50)
+  // → blocky + a finer octave (100). Defaults reproduce the original grain exactly.
+  vec2 gp = uv * outSize / (1. + u_grainSize * 2.);
+  vec2 gi = floor(gp), gf = fract(gp), gs = gf * gf * (3. - 2. * gf);
+  float smoothN = mix(mix(hash2(gi), hash2(gi + vec2(1, 0)), gs.x), mix(hash2(gi + vec2(0, 1)), hash2(gi + 1.), gs.x), gs.y) - .5;
+  float n = mix(smoothN * 1.6, hash2(gi) - .5, clamp(u_grainRough * 2., 0., 1.));
+  n += (hash2(floor(gp * 2.) + 17.) - .5) * max(0., u_grainRough * 2. - 1.) * .6;
   g += n * u_grain * .18 * (1. - abs(luma(g) - .5));
 
   o = vec4(clamp(g, 0., 1.), 1);
