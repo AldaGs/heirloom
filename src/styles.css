@@ -375,3 +375,11 @@ h4 { margin: 16px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .08e
   .app.focus .m-compare { top: 12px; bottom: auto; }
   .app.focus .m-focus { top: 56px; bottom: auto; }
 }
+
+/* Import placeholder: sweeping gradient while the file is decoded */
+.tile.importing { background: linear-gradient(110deg, var(--panel) 30%, color-mix(in srgb, var(--accent) 28%, var(--panel)) 50%, var(--panel) 70%);
+  background-size: 250% 100%; animation: imp-sweep 1.4s linear infinite; cursor: progress; }
+.tile.importing .imp-name { position: absolute; left: 8px; right: 8px; bottom: 6px; color: var(--muted); font: 11px var(--mono);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@keyframes imp-sweep { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+@media (prefers-reduced-motion: reduce) { .tile.importing { animation: none; background-position: 50% 0; } }
