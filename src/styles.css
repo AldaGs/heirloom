@@ -1,6 +1,6 @@
 :root {
   --bg: #0F0F10; --canvas: #0B0B0C; --panel: #17171A; --bar: #141416; --border: #2A2A2F;
-  --text: #ECEAE6; --text-2: #C9C7C2; --muted: #9A9AA3; --accent: #F0A43A; --on-accent: #1A1206;
+  --text: #ECEAE6; --text-2: #C9C7C2; --muted: #9A9AA3; --accent: #E8E8E8; --on-accent: #111111;
   --mono: 'JetBrains Mono', ui-monospace, monospace;
   color-scheme: dark;
 }

@@ -526,7 +526,7 @@ export function App() {
         </header>
       ) : (
       <header className="top">
-        <div className="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.75" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="3.5" /></svg>Heirloom</div>
+        <div className="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F0A43A" strokeWidth="1.75" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="3.5" /></svg>Heirloom</div>
         <nav aria-label="Modules">
           <button className={mode === 'library' ? 'on' : ''} aria-current={mode === 'library' ? 'page' : undefined} onClick={() => setMode('library')}>Library</button>
           <button className={mode === 'cull' ? 'on' : ''} aria-current={mode === 'cull' ? 'page' : undefined} onClick={() => { if (!cur && list.length) setCurId(list[0].id); setMode('cull'); }} disabled={!photos.length} title="Fast culling (keyboard)">Cull</button>
