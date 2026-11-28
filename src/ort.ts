@@ -10,9 +10,9 @@ export async function hasWebGpu() {
   return !!g && !!(await g.requestAdapter().catch(() => null));
 }
 
-export async function session(file: string) {
+export async function session({ url: file, sha256 }: { url: string; sha256: string }) {
   // Model first: loadModel() refuses while AI is off, so the runtime isn't even downloaded then.
-  const model = await loadModel(file);
+  const model = await loadModel(file, sha256);
   if (!sessions.has(file)) sessions.set(file, (async () => {
     const ort = await import('onnxruntime-web/webgpu');
     const gpu = await hasWebGpu();

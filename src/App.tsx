@@ -26,6 +26,8 @@ import { maskSize } from './sam-core.ts';
 import { MASKS, MASK_ADJ, maskKey } from './sliders.ts';
 import type { Pt } from './sam-core.ts';
 import { NoiseField, ProceduralImageLoader } from './ProceduralImageLoader.tsx';
+import { MobileDock } from './MobileDock.tsx';
+import { ArrowUUpLeft, ArrowUUpRight, CaretLeft, CornersOut, Export } from '@phosphor-icons/react';
 
 type Zoom = 'fit' | number; // number: 1 = 100% (one image pixel per device pixel)
 const ZOOM_MAX = 8;
@@ -240,26 +242,78 @@ export function App() {
     return () => { live = false; };
   }, [curId, mode, loadedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Render + histogram + navigator
+  // The canvas is drawn at screen size (like Lightroom): at Fit a 24 MP photo is ~1–3 MP on screen, so that's all the GPU
+  // draws; zoomed in, only the visible part is redrawn. Export and AI always develop the full image, so nothing is lost.
+  // While a dial moves ("live"), the histogram/navigator read-back (a GPU stall) runs a few times a second, not per frame.
+  const [live, setLive] = useState(false);
+  const liveT = useRef(0), lastHist = useRef(0);
+  const goLive = () => { setLive(true); clearTimeout(liveT.current); liveT.current = window.setTimeout(() => setLive(false), 300); };
+  const settle = () => { clearTimeout(liveT.current); setLive(false); };
+  const [stageV, setStageV] = useState(0); // stage resized (window, phone dock): redraw at the new screen size
   useEffect(() => {
-    if (!cur || loadedId !== cur.id || !view.current) return;
-    {
-      const geom = Object.fromEntries(GEOMETRY.map(k => [k, cur.v[k]]));
-      const v = bypass ? { ...base(cur), ...geom } : cur.v;
-      pipe.current!.render(sourceView ? { ...v, angle: 0, flipH: 0, flipV: 0 } : v, cur.asShot, cropping || sourceView); // Remove/Mask work on the unrotated full frame
-      const h = histogram(view.current!);
-      drawHist(histC.current!, h);
-      if (miniHist.current) drawHist(miniHist.current, h);
-      const n = navC.current!, k = Math.min(n.width / view.current!.width, n.height / view.current!.height);
-      const g = n.getContext('2d')!;
-      g.clearRect(0, 0, n.width, n.height);
-      g.drawImage(view.current!, (n.width - view.current!.width * k) / 2, (n.height - view.current!.height * k) / 2, view.current!.width * k, view.current!.height * k);
-      setFrame(f => f + 1);
+    const s = stage.current; if (!s) return;
+    let t = 0;
+    const ro = new ResizeObserver(() => { clearTimeout(t); t = window.setTimeout(() => setStageV(x => x + 1), 60); });
+    ro.observe(s); return () => { ro.disconnect(); clearTimeout(t); };
+  }, []);
+  const navImg = useRef<OffscreenCanvas | null>(null);
+
+  type Box = { x: number; y: number; w: number; h: number };
+  /** What's on screen as fractions of the frame, grown by `m` per side (undefined at Fit: everything is). */
+  const visible = (m = 0): Box | undefined => {
+    const s = stage.current, c = frameEl(); if (!s || !c || zoom === 'fit') return undefined;
+    const cr = c.getBoundingClientRect(), sr = s.getBoundingClientRect();
+    if (!cr.width || !cr.height) return undefined;
+    const x = (sr.left - cr.left) / cr.width, y = (sr.top - cr.top) / cr.height, w = sr.width / cr.width, h = sr.height / cr.height;
+    return { x: x - w * m, y: y - h * m, w: w * (1 + 2 * m), h: h * (1 + 2 * m) };
+  };
+  /** Area drawn with the latest settings (undefined = the whole frame). */
+  const drawn = useRef<Box | undefined>(undefined);
+  const frameValues = () => {
+    if (!cur) return undefined;
+    const geom = Object.fromEntries(GEOMETRY.map(k => [k, cur.v[k]]));
+    const v = bypass ? { ...base(cur), ...geom } : cur.v;
+    return sourceView ? { ...v, angle: 0, flipH: 0, flipV: 0 } : v; // Remove/Mask work on the unrotated full frame
+  };
+  // Zoomed in (plain editing): the canvas covers only the visible area plus a margin and sits over a spacer the size of the
+  // zoomed photo, so the stage scrolls natively. A photo-sized canvas would be slow to composite and, past ~16.7 MP,
+  // over iOS Safari's canvas limit. Masking/Remove keep the photo-sized canvas their overlays are built on.
+  const viewport = zoom !== 'fit' && !sourceView && !cropping;
+  const space = useRef<HTMLDivElement>(null);
+  const frameEl = (): HTMLElement | null => (viewport ? space.current : view.current);
+  const placed = useRef(false);
+  /** Draw the canvas. Remove's brush layer must match the photo's pixels, so Remove draws at full size. */
+  const draw = () => {
+    const v = frameValues(), c = view.current; if (!v || !pipe.current || !c) return;
+    const scale = removing ? 1 : Math.min(1, scaleNow() * 1.02);
+    const vis = viewport ? visible(0.15) : undefined, sp = space.current;
+    if (vis && sp) {
+      const x0 = Math.max(0, vis.x), y0 = Math.max(0, vis.y), x1 = Math.min(1, vis.x + vis.w), y1 = Math.min(1, vis.y + vis.h);
+      const box = { x: x0, y: y0, w: Math.max(1e-4, x1 - x0), h: Math.max(1e-4, y1 - y0) };
+      pipe.current.render(v, cur!.asShot, cropping || sourceView, scale, box);
+      Object.assign(c.style, { left: `${sp.offsetLeft + box.x * sp.offsetWidth}px`, top: `${sp.offsetTop + box.y * sp.offsetHeight}px`,
+        width: `${box.w * sp.offsetWidth}px`, height: `${box.h * sp.offsetHeight}px` });
+      placed.current = true; drawn.current = box;
+    } else {
+      if (placed.current) { Object.assign(c.style, { left: '', top: '', width: canvasStyle?.width != null ? `${canvasStyle.width}px` : '', height: '' }); placed.current = false; }
+      pipe.current.render(v, cur!.asShot, cropping || sourceView, scale);
+      drawn.current = undefined;
     }
-  }, [cur?.v, bypass, loadedId, cropping, sourceView, maskVer]); // eslint-disable-line react-hooks/exhaustive-deps
+  };
+  const drawRef = useRef(draw); drawRef.current = draw;
+
+  // Zoomed in: panning past the drawn margin brings in pixels not drawn with the latest settings → redraw there
+  const scrollDraw = useRef(0);
+  const redrawVisible = () => {
+    const d = drawn.current, v = visible();
+    if (scrollDraw.current || !d || !v) return;
+    if (v.x >= d.x && v.y >= d.y && v.x + v.w <= d.x + d.w && v.y + v.h <= d.y + d.h) return;
+    scrollDraw.current = requestAnimationFrame(() => { scrollDraw.current = 0; drawRef.current(); });
+  };
 
   const onScroll = () => {
     const s = stage.current!;
+    redrawVisible();
     setNav({ x: s.scrollLeft / s.scrollWidth, y: s.scrollTop / s.scrollHeight, w: s.clientWidth / s.scrollWidth, h: s.clientHeight / s.scrollHeight });
   };
   useEffect(onScroll, [zoom, frame]);
@@ -267,25 +321,52 @@ export function App() {
   // ---- Continuous zoom: wheel / trackpad pinch / touch pinch, anchored at the pointer; drag to pan ----
   const anchor = useRef<{ rx: number; ry: number; cx: number; cy: number } | null>(null);
   const PAD = () => (mobile ? 8 : 32);
+  /** Full-resolution frame size: zoom is in image pixels, whatever size the canvas is drawn at right now. */
+  const fullSize = () => pipe.current?.size() ?? { w: view.current?.width ?? 1, h: view.current?.height ?? 1 };
   const fitScale = () => {
     const s = stage.current, c = view.current; if (!s || !c?.width) return 1;
-    return Math.min((s.clientWidth - 2 * PAD()) / c.width, (s.clientHeight - 2 * PAD()) / c.height) * devicePixelRatio;
+    const f = fullSize();
+    return Math.min((s.clientWidth - 2 * PAD()) / f.w, (s.clientHeight - 2 * PAD()) / f.h) * devicePixelRatio;
   };
   const scaleNow = () => (zoom === 'fit' ? fitScale() : zoom);
   /** Zoom to `next` keeping the image point under (clientX, clientY) in place. */
   const zoomAt = (next: number, clientX: number, clientY: number) => {
-    const s = stage.current, c = view.current; if (!s || !c || !cur) return;
+    const s = stage.current, c = frameEl(); if (!s || !c || !cur) return;
     const fit = fitScale(), z = Math.min(ZOOM_MAX, Math.max(fit, next));
     const cr = c.getBoundingClientRect(), sr = s.getBoundingClientRect();
     anchor.current = { rx: (clientX - cr.left) / cr.width, ry: (clientY - cr.top) / cr.height, cx: clientX - sr.left, cy: clientY - sr.top };
     setZoom(z <= fit * 1.001 ? 'fit' : +z.toFixed(4));
   };
   useLayoutEffect(() => {
-    const a = anchor.current, s = stage.current, c = view.current; anchor.current = null;
+    const a = anchor.current, s = stage.current, c = frameEl(); anchor.current = null;
     if (!a || !s || !c || zoom === 'fit') return;
     s.scrollLeft = c.offsetLeft + a.rx * c.offsetWidth - a.cx;
     s.scrollTop = c.offsetTop + a.ry * c.offsetHeight - a.cy;
   }, [zoom]);
+
+  // Render + histogram + navigator. A layout effect, after the zoom anchor above: the canvas is drawn and placed for the
+  // new zoom/scroll before the browser paints, so zooming never shows a misplaced frame.
+  useLayoutEffect(() => {
+    if (!cur || loadedId !== cur.id || !view.current) return;
+    draw();
+    const now = performance.now();
+    if (live && now - lastHist.current < 150) return;
+    lastHist.current = now;
+    // histogram + navigator from a small off-screen render of the whole frame (complete even when zoomed in)
+    const img = pipe.current!.preview(frameValues()!, cur.asShot, cropping || sourceView, 360);
+    if (!img) return;
+    const h = histogram(img);
+    drawHist(histC.current!, h);
+    if (miniHist.current) drawHist(miniHist.current, h);
+    const t = (navImg.current ??= new OffscreenCanvas(1, 1));
+    if (t.width !== img.width || t.height !== img.height) { t.width = img.width; t.height = img.height; }
+    t.getContext('2d')!.putImageData(img, 0, 0);
+    const n = navC.current!, k = Math.min(n.width / img.width, n.height / img.height), g = n.getContext('2d')!;
+    g.clearRect(0, 0, n.width, n.height);
+    g.drawImage(t, (n.width - img.width * k) / 2, (n.height - img.height * k) / 2, img.width * k, img.height * k);
+    if (!live) setFrame(f => f + 1); // navigator rectangle; not needed per live frame (it re-renders the whole app)
+  }, [cur?.v, bypass, loadedId, cropping, sourceView, removing, maskVer, live, zoom, stageV, viewport]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const zoomRef = useRef(zoomAt); zoomRef.current = zoomAt;
   const scaleRef = useRef(scaleNow); scaleRef.current = scaleNow;
   useEffect(() => {
@@ -317,7 +398,7 @@ export function App() {
   const pan = useRef<{ x: number; y: number } | null>(null);
 
   // Actions
-  const setVal = (k: string, x: number) => { setLastTool(k); update(p => ({ ...p, v: { ...p.v, [k]: x } })); };
+  const setVal = (k: string, x: number) => { if (k !== lastTool) setLastTool(k); goLive(); update(p => ({ ...p, v: { ...p.v, [k]: x } })); };
   // Crop tool (FIXER_IMPROVEMENTS §4 geometry). Rect is a fraction of the straightened frame.
   const ratioOf = (name: string) => { const r = ASPECTS.find(a => a[0] === name)?.[1]; return r === 'orig' ? (cur ? frameAspect(cur.w, cur.h, cur.v.angle) : null) : r ?? null; };
   const setRect = (r: Rect) => update(p => ({ ...p, v: { ...p.v, ...r } }));
@@ -339,15 +420,16 @@ export function App() {
     const b = base(p);
     return push(p, { ...p.v, ...Object.fromEntries(keys.map(k => [k, b[k]])) }, label);
   });
-  const commit = () => update(p => push(p, p.v));
+  const commit = () => { settle(); update(p => push(p, p.v)); };
   // History steps can carry an AI Remove layer: syncLayers puts the right one in effect
   const jump = (i: number) => update(p => syncLayers(goto(p, i)));
   const undo = () => update(p => syncLayers(goto(p, p.hi - 1)));
   const redo = () => update(p => syncLayers(goto(p, p.hi + 1)));
   const auto = () => {
     if (!cur || !view.current) return;
-    pipe.current!.render(base(cur), cur.asShot);
-    const exposure = +autoExposure(histogram(view.current)).toFixed(3);
+    const img = pipe.current!.preview(base(cur), cur.asShot, false, 512);
+    if (!img) return;
+    const exposure = +autoExposure(histogram(img)).toFixed(3);
     update(p => push(p, { ...p.v, exposure }, 'Auto'));
   };
   // AI Remove: model sees the unedited image (earlier removals included); result goes into the photo's retouch layer
@@ -410,7 +492,7 @@ export function App() {
   const embKey = cur ? `${cur.id}:${cur.hist[cur.hi].rt ?? ''}` : '';
   const slots = Array.from({ length: MASKS }, (_, i) => !!cur?.masks?.[i]);
   const freeSlot = slots.indexOf(false);
-  const mSize = view.current && masking ? maskSize(view.current.width, view.current.height) : { w: 1, h: 1 };
+  const mSize = view.current && masking ? maskSize(fullSize().w, fullSize().h) : { w: 1, h: 1 };
   const endMaskEdit = () => { setMMode({ kind: 'idle' }); setPick({ pts: [] }); setWork(null); };
   const commitMask = async (slot: number, img: ImageData, label: string) => {
     const c = new OffscreenCanvas(img.width, img.height); c.getContext('2d')!.putImageData(img, 0, 0);
@@ -510,24 +592,43 @@ export function App() {
     return () => { removeEventListener('keydown', down); removeEventListener('keyup', up); };
   });
 
-  const canvasStyle = zoom === 'fit' || !cur ? undefined : { width: ((view.current?.width ?? cur.w) * zoom) / devicePixelRatio, maxWidth: 'none', maxHeight: 'none' };
+  const zoomW = cur && zoom !== 'fit' ? (fullSize().w * zoom) / devicePixelRatio : 0, zoomH = cur && zoom !== 'fit' ? (fullSize().h * zoom) / devicePixelRatio : 0;
+  const canvasStyle = zoom === 'fit' || !cur || viewport ? undefined : { width: zoomW, maxWidth: 'none', maxHeight: 'none' };
   useEffect(() => { if (cropping) setZoom('fit'); }, [cropping]);
   const list = photos.filter(p => FILTERS[filter][1](p) && inAlbum(album)(p)).sort(byDate); // Library order, also used by Cull + filmstrip
   const loading = mode === 'develop' && !!cur && loadedId !== cur.id;
   const activePreset = cur && PRESETS.find(p => same(cur.v, { ...base(cur), ...p.v }))?.name;
+  const applyPreset = (name: string) => { const pr = PRESETS.find(p => p.name === name); if (pr) update(ph => push(ph, { ...base(ph), ...pr.v }, `Preset: ${pr.name}`)); };
+  const sheet = masking && cur ? (
+    <MaskPanel ai={ai} slots={slots} sel={maskSel} setSel={setMaskSel} mode={mMode} setMode={setMMode} busy={mkBusy} msg={mkMsg} v={cur.v} byKey={byKey}
+      setVal={setVal} commit={commit} showMask={showMask} setShowMask={setShowMask}
+      onAI={newMask} onFinishAI={finishMask} onCancel={() => { endMaskEdit(); setMkMsg(''); }}
+      onLinear={() => setMMode({ kind: 'linear' })} onRadial={() => setMMode({ kind: 'radial' })}
+      onBrushNew={() => startBrush(freeSlot, undefined, `Mask ${freeSlot + 1} (brush)`)} onRefine={() => startBrush(maskSel, maskImgs[maskSel], `Refine mask ${maskSel + 1}`)}
+      onApplyBrush={() => work && commitMask(work.slot, work.img, work.label)}
+      onDelete={deleteMask} done={() => { endMaskEdit(); setTool('edit'); }} />
+  ) : tool === 'denoise' && ai && cur ? (
+    <DenoisePanel strength={dnStrength} setStrength={setDnStrength} progress={dn} msg={dnMsg} pixels={cur.w * cur.h}
+      onRun={runDenoise} onCancel={() => dnAbort.current?.abort()} done={() => setTool('edit')} />
+  ) : removing && cur ? (
+    <RemovePanel size={brush} setSize={setBrush} busy={rmBusy} msg={rmMsg} hasRetouch={!!cur.retouch} done={() => setTool('edit')}
+      onRemove={runRemove} onClear={() => { const b = brushRef.current; b?.getContext('2d')!.clearRect(0, 0, b.width, b.height); }}
+      onRevert={() => { update(p => syncLayers(pushStep(p, 'Revert removals', { rt: undefined }))); setRmMsg('Reverted. Undo with Ctrl+Z.'); }} />
+  ) : null;
 
   return (
     <div className={'app' + (mode !== 'develop' ? ' lib' : '') + (focus && mode === 'develop' ? ' focus' : '') + (mobile ? ' mobile' : '')} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); addFiles(e.dataTransfer.files); }}>
       {mobile ? (
         <header className="top m-top">
           {mode === 'develop' ? <>
-            <button className="icon" aria-label="Back to library" onClick={() => { setMode('library'); setFocus(false); }}><Icon d="M15 18l-6-6 6-6" /></button>
+            <button className="icon" aria-label="Back to library" onClick={() => { setMode('library'); setFocus(false); }}><CaretLeft size={22} /></button>
             <div className="m-title">
               <div>{cur?.name.replace(/\.[^.]+$/, '')}</div>
               <div className="m-sub">{busy || [cur?.raw ? 'RAW' : cur?.name.split('.').pop()?.toUpperCase(), cur?.exif.aperture && `ƒ/${+cur.exif.aperture.toFixed(1)}`, cur?.exif.shutter && fmtShutter(cur.exif.shutter), cur?.exif.iso && `ISO ${cur.exif.iso}`].filter(Boolean).join(' · ')}</div>
             </div>
-            <button className="icon" aria-label="Undo" onClick={undo} disabled={!cur || cur.hi === 0}><Icon d="M9 14 4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3" /></button>
-            <button className="icon accent" aria-label="Export" onClick={exportJpeg} disabled={!cur}><Icon d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" /></button>
+            <button className="icon" aria-label="Undo" onClick={undo} disabled={!cur || cur.hi === 0}><ArrowUUpLeft size={22} /></button>
+            <button className="icon" aria-label="Redo" onClick={redo} disabled={!cur || cur.hi === cur.hist.length - 1}><ArrowUUpRight size={22} /></button>
+            <button className="icon accent" aria-label="Export" onClick={exportJpeg} disabled={!cur}><Export size={22} /></button>
           </> : <h1 className="m-h1">Library</h1>}
           {locked.map(f => <button key={f.key} className="ghost bordered" onClick={() => reconnect(f)}>Reconnect</button>)}
         </header>
@@ -597,7 +698,8 @@ export function App() {
           onTouchStart={e => { swipe.current = e.touches.length === 1 ? e.touches[0].clientY : null; }}
           onTouchEnd={e => { const y0 = swipe.current; swipe.current = null; if (y0 !== null && zoom === 'fit' && Math.abs(e.changedTouches[0].clientY - y0) > 80) setFocus(f => !f); }}>
           {!cur && <div className="empty">Drop photos anywhere or <button className="primary" onClick={() => fileIn.current!.click()}>Import…</button></div>}
-          <canvas ref={view} hidden={!cur} style={canvasStyle} />
+          {viewport && cur && <div className="zoom-space" ref={space} style={{ width: zoomW, height: zoomH }} />}
+          <canvas ref={view} hidden={!cur} style={canvasStyle} className={viewport ? 'vp' : undefined} />
         </div>
         {/* Heavy decode (RAW demosaic, GPU upload) → animated field so the app never looks frozen */}
         <div className={'stage-loader' + (loading ? ' on' : '')} aria-hidden={!loading}>
@@ -617,7 +719,7 @@ export function App() {
         {mobile && cur && <>
           <canvas className="mini-hist" ref={miniHist} width={192} height={64} aria-hidden="true" />
           <CompareButton className="pill m-compare" bypass={bypass} setBypass={setBypass} />
-          <button className={'pill m-focus' + (focus ? ' on' : '')} onClick={() => setFocus(f => !f)} aria-pressed={focus}><Icon d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /> Focus</button>
+          <button className={'pill m-focus' + (focus ? ' on' : '')} onClick={() => setFocus(f => !f)} aria-pressed={focus} aria-label="Focus mode" title="Focus mode"><CornersOut size={18} /></button>
         </>}
         {focus && cur && (
           <div className="focus-enc" role="group" aria-label="Focus mode">
@@ -658,58 +760,30 @@ export function App() {
           <span>ISO {cur?.exif.iso || '—'}</span><span>{cur?.exif.focal ? Math.round(cur.exif.focal) : '—'} mm</span>
           <span>ƒ/{cur?.exif.aperture ? +cur.exif.aperture.toFixed(1) : '—'}</span><span>{fmtShutter(cur?.exif.shutter)}</span>
         </div>
-        <div className="tools" role="tablist">
-          <ToolTab id="edit" tool={tool} setTool={setTool} label="Edit" d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4" />
-          <ToolTab id="crop" tool={tool} setTool={setTool} label="Crop & straighten (R)" d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14" />
-          {ai && <ToolTab id="denoise" tool={tool} setTool={setTool} label="AI Denoise (on-device)" d="M4 4h2v2H4zM10 4h2v2h-2zM16 4h2v2h-2zM7 10h2v2H7zM13 10h2v2h-2zM4 16h2v2H4zM10 16h2v2h-2zM16 16h2v2h-2zM19 10h2v2h-2z" />}
-          {ai && <ToolTab id="remove" tool={tool} setTool={setTool} label="Remove (AI, on-device)" d="m3 21 12-12M15 4V2M15 10V8M19 6h2M11 6h2M17.5 3.5 19 2M17.5 8.5 19 10" />}
-          <ToolTab id="mask" tool={tool} setTool={setTool} label="Masking" d="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" />
-          <ToolTab id="info" tool={tool} setTool={setTool} label="Info (EXIF)" d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" />
-        </div>
-        {masking && cur ? (
-          <MaskPanel ai={ai} slots={slots} sel={maskSel} setSel={setMaskSel} mode={mMode} setMode={setMMode} busy={mkBusy} msg={mkMsg} v={cur.v} byKey={byKey}
-            setVal={setVal} commit={commit} showMask={showMask} setShowMask={setShowMask}
-            onAI={newMask} onFinishAI={finishMask} onCancel={() => { endMaskEdit(); setMkMsg(''); }}
-            onLinear={() => setMMode({ kind: 'linear' })} onRadial={() => setMMode({ kind: 'radial' })}
-            onBrushNew={() => startBrush(freeSlot, undefined, `Mask ${freeSlot + 1} (brush)`)} onRefine={() => startBrush(maskSel, maskImgs[maskSel], `Refine mask ${maskSel + 1}`)}
-            onApplyBrush={() => work && commitMask(work.slot, work.img, work.label)}
-            onDelete={deleteMask} done={() => { endMaskEdit(); setTool('edit'); }} />
-        ) : tool === 'denoise' && ai && cur ? (
-          <DenoisePanel strength={dnStrength} setStrength={setDnStrength} progress={dn} msg={dnMsg} pixels={cur.w * cur.h}
-            onRun={runDenoise} onCancel={() => dnAbort.current?.abort()} done={() => setTool('edit')} />
-        ) : removing && cur ? (
-          <RemovePanel size={brush} setSize={setBrush} busy={rmBusy} msg={rmMsg} hasRetouch={!!cur.retouch} done={() => setTool('edit')}
-            onRemove={runRemove} onClear={() => { const b = brushRef.current; b?.getContext('2d')!.clearRect(0, 0, b.width, b.height); }}
-            onRevert={() => { update(p => syncLayers(pushStep(p, 'Revert removals', { rt: undefined }))); setRmMsg('Reverted. Undo with Ctrl+Z.'); }} />
-        ) : cropping && cur ? (
-          <CropPanel v={cur.v} aspect={aspect} setAspect={setAspect} angle={byKey.angle} setAngle={x => setVal('angle', x)} commit={commit}
-            reset={() => resetKeys(GEOMETRY, 'Reset crop')} done={() => setTool('edit')} turn={turn} flip={flip} />
-        ) : tool === 'info' && !mobile ? (
-          <InfoPanel p={cur} />
-        ) : mobile && tool === 'presets' ? (
-          <div className="m-presets">
-            {PRESETS.map(p => (
-              <button key={p.name} className={'preset' + (activePreset === p.name ? ' on' : '')} disabled={!cur}
-                onClick={() => update(ph => push(ph, { ...base(ph), ...p.v }, `Preset: ${p.name}`))}>
-                <span style={{ background: p.swatch }} />{p.name}
-              </button>
-            ))}
+        {mobile && mode === 'develop' ? (
+          <MobileDock cur={cur} ai={ai} tool={tool} setTool={setTool} setVal={setVal} commit={commit} resetKeys={resetKeys} auto={auto} sheet={sheet}
+            presets={{ active: activePreset, apply: applyPreset }}
+            crop={{ aspect, setAspect, turn, flip, reset: () => resetKeys(GEOMETRY, 'Reset crop') }} />
+        ) : <>
+          <div className="tools" role="tablist">
+            <ToolTab id="edit" tool={tool} setTool={setTool} label="Edit" d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4" />
+            <ToolTab id="crop" tool={tool} setTool={setTool} label="Crop & straighten (R)" d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14" />
+            {ai && <ToolTab id="denoise" tool={tool} setTool={setTool} label="AI Denoise (on-device)" d="M4 4h2v2H4zM10 4h2v2h-2zM16 4h2v2h-2zM7 10h2v2H7zM13 10h2v2h-2zM4 16h2v2H4zM10 16h2v2h-2zM16 16h2v2h-2zM19 10h2v2h-2z" />}
+            {ai && <ToolTab id="remove" tool={tool} setTool={setTool} label="Remove (AI, on-device)" d="m3 21 12-12M15 4V2M15 10V8M19 6h2M11 6h2M17.5 3.5 19 2M17.5 8.5 19 10" />}
+            <ToolTab id="mask" tool={tool} setTool={setTool} label="Masking" d="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" />
+            <ToolTab id="info" tool={tool} setTool={setTool} label="Info (EXIF)" d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" />
           </div>
-        ) : (
-          <Adjustments cur={cur} mobile={mobile} setVal={setVal} commit={commit} resetKeys={resetKeys} auto={auto} />
-        )}
+          {sheet ?? (cropping && cur ? (
+            <CropPanel v={cur.v} aspect={aspect} setAspect={setAspect} angle={byKey.angle} setAngle={x => setVal('angle', x)} commit={commit}
+              reset={() => resetKeys(GEOMETRY, 'Reset crop')} done={() => setTool('edit')} turn={turn} flip={flip} />
+          ) : tool === 'info' ? (
+            <InfoPanel p={cur} />
+          ) : (
+            <Adjustments cur={cur} setVal={setVal} commit={commit} resetKeys={resetKeys} auto={auto} />
+          ))}
+        </>}
       </aside>
 
-      {mobile && mode === 'develop' && (
-        <nav className="m-nav" aria-label="Edit tools">
-          <MNav icon="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z" label="Presets" on={tool === 'presets'} onClick={() => setTool('presets')} />
-          <MNav icon="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14" label="Crop" on={tool === 'crop'} onClick={() => setTool('crop')} />
-          <MNav icon="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M16 4v4M10 10v4M18 16v4" label="Edit" on={tool === 'edit' || tool === 'info'} onClick={() => setTool('edit')} />
-          <MNav icon="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" label="Masking" on={tool === 'mask'} onClick={() => setTool('mask')} />
-          {ai && <MNav icon="M4 4h2v2H4zM10 4h2v2h-2zM16 4h2v2h-2zM7 10h2v2H7zM13 10h2v2h-2zM4 16h2v2H4zM10 16h2v2h-2z" label="Denoise" on={tool === 'denoise'} onClick={() => setTool('denoise')} />}
-          {ai && <MNav icon="m3 21 12-12M15 4V2M15 10V8M19 6h2M11 6h2" label="Remove" on={tool === 'remove'} onClick={() => setTool('remove')} />}
-        </nav>
-      )}
       {mobile && mode !== 'develop' && (
         <nav className="m-nav" aria-label="Sections">
           <MNav icon="M3 3h18v18H3zM8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM21 15l-5-5L5 21" label="Photos" on />

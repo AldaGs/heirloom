@@ -1,5 +1,5 @@
 """
-Build public/models/mobilesam_{encoder,decoder}.onnx from the official MobileSAM release (Apache-2.0, ChaoningZhang/MobileSAM).
+Build public/models/ (local only; upload to Hugging Face, see scripts/check-models.ts) mobilesam_{encoder,decoder}.onnx from the official MobileSAM release (Apache-2.0, ChaoningZhang/MobileSAM).
 Encoder has SAM's pixel normalisation baked in (input: RGB 0..255, long side resized to 1024, zero-padded to 1024²).
 Decoder is MobileSAM's own SamOnnxModel (single best mask). Needs: pip install torch onnx timm
 Run: python3 scripts/convert_mobilesam.py

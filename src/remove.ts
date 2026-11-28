@@ -14,7 +14,7 @@ export async function removeArea(base: ImageData, brush: ImageData, layer?: Imag
   if (brush.width !== w || brush.height !== h) throw new Error('brush size mismatch');
   const { mask, hole, any } = toMask(brush.data, w, h, 4);
   if (!any) throw new Error('Paint over what you want removed first');
-  const { ort, s } = await session(MODELS.migan.file);
+  const { ort, s } = await session(MODELS.migan);
   const out = await s.run({
     [s.inputNames[0]]: new ort.Tensor('uint8', toCHW(base.data, w, h), [1, 3, h, w]),
     [s.inputNames[1]]: new ort.Tensor('uint8', mask, [1, 1, h, w]),

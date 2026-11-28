@@ -206,11 +206,12 @@ h4 { margin: 16px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .08e
 .m-nav { display: none; }
 @media (max-width: 700px) {
   body { font-size: 14px; }
-  .app { grid-template: 56px 42vh minmax(0, 1fr) 76px / minmax(0, 1fr); grid-template-areas: "top" "center" "right" "nav"; }
+  /* develop: the photo takes everything the dock (categories → controls → slider) doesn't */
+  .app { grid-template: 56px minmax(0, 1fr) auto / minmax(0, 1fr); grid-template-areas: "top" "center" "right"; }
   .app.lib { grid-template: 56px 1fr 76px / 1fr; grid-template-areas: "top" "main" "nav"; }
   .app.lib .library, .app.lib .cull { grid-area: main; }
   .app > .left, .app > .film, .app .bottom, .right .hist, .right .exif, .right .tools { display: none; }
-  .top { grid-area: top; } .center { grid-area: center; } .right { grid-area: right; border-left: 0; padding: 0; }
+  .top { grid-area: top; } .center { grid-area: center; } .right { grid-area: right; border-left: 0; padding: 0; overflow: visible; }
   .m-top { gap: 4px; padding: 0 8px; border-bottom: 0; background: var(--bg); }
   .m-top .icon { width: 44px; height: 44px; }
   .m-title { flex: 1; min-width: 0; font-weight: 600; font-size: 15px; }
@@ -223,16 +224,8 @@ h4 { margin: 16px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .08e
   .stage-loader { height: 100%; }
   .mini-hist { position: absolute; left: 12px; bottom: 12px; width: 96px; height: 32px; border-radius: 6px; background: rgba(15,15,16,.7); z-index: 2; }
   .m-compare { position: absolute; right: 12px; bottom: 12px; z-index: 2; height: 36px; border-radius: 18px; background: rgba(15,15,16,.8); color: var(--text); font-weight: 600; font-size: 12px; }
-  .adjust .sec-head { height: 48px; margin: 0; padding: 0 12px 0 20px; border-bottom: 1px solid #1E1E22; }
-  .adjust.mobile .sec-head h3 { font-size: 11px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+  .adjust .sec-head { height: 44px; margin: 0; }
   .adjust .sec-head button { height: 32px; border-radius: 16px; font-weight: 600; font-size: 12px; }
-  .group { border-bottom: 1px solid #1E1E22; }
-  .group-head { width: 100%; height: 52px; padding: 0 16px 0 20px; display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; border-radius: 0; }
-  .group-head span:first-child { flex: 1; text-align: left; }
-  .group-head .edited-count { font-size: 12px; font-weight: 500; }
-  .group-head svg { color: var(--muted); transition: transform .16s ease; }
-  .group-body { padding: 0 20px 12px; }
-  .group-reset { margin-top: 4px; }
   /* encoder: label + number on one row, full-width taller strip below */
   .enc-row { grid-template-columns: 1fr 72px; grid-template-areas: "label num" "enc enc"; gap: 6px; margin: 0; padding: 6px 0; }
   .enc-row label { grid-area: label; font-size: 13px; }
@@ -240,8 +233,6 @@ h4 { margin: 16px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .08e
   .enc-row .enc-wrap { grid-area: enc; }
   .enc-row .enc { height: 36px; border-radius: 8px; }
   .focus-enc .enc-row { grid-template-columns: 1fr 64px; }
-  .m-presets { padding: 12px 16px; }
-  .m-presets .preset { min-height: 44px; }
   .m-nav { grid-area: nav; display: flex; justify-content: space-around; align-items: flex-start; padding-top: 8px; background: var(--bar); border-top: 1px solid var(--border); }
   .m-nav button { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 64px; min-height: 44px; font-size: 12px; color: var(--muted); }
   .m-nav button.on { color: var(--accent); }
@@ -383,3 +374,36 @@ h4 { margin: 16px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .08e
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @keyframes imp-sweep { from { background-position: 100% 0; } to { background-position: -150% 0; } }
 @media (prefers-reduced-motion: reduce) { .tile.importing { animation: none; background-position: 50% 0; } }
+
+/* ---- Mobile develop dock (MobileDock.tsx): slider / controls / categories, bottom up ---- */
+.dock { display: flex; flex-direction: column; background: var(--bar); border-top: 1px solid var(--border); }
+.dock-work { padding: 6px 16px 4px; border-bottom: 1px solid #1E1E22; }
+.dock-work .enc-row + .enc-row { padding-top: 2px; }
+.dock-sheet { max-height: 38vh; overflow-y: auto; margin: 0 -16px; padding: 0 16px 8px; overscroll-behavior: contain; }
+.dock-curve { display: grid; justify-items: center; gap: 2px; }
+.dock-curve .curve { width: auto; height: min(210px, 28vh); margin: 4px 0 0; }
+.dock-curve p { margin: 0 0 2px; }
+.dock-chips { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0; scrollbar-width: none; }
+.dock-chips::-webkit-scrollbar { display: none; }
+.dock-chips .pill { border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px; }
+.dock-chips .pill:first-child { color: var(--muted); }
+.dock-chips .pill.on { color: var(--text); background: #222226; border-color: var(--text-2); }
+.dock-row { display: flex; gap: 2px; overflow-x: auto; padding: 4px 8px; scrollbar-width: none; scroll-snap-type: x proximity; }
+.dock-row::-webkit-scrollbar { display: none; }
+.cat-row { padding-bottom: max(6px, env(safe-area-inset-bottom)); border-top: 1px solid #1E1E22; }
+.dock-btn { position: relative; flex: none; min-width: 64px; min-height: 52px; padding: 4px 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  color: var(--muted); scroll-snap-align: center; border-radius: 10px; }
+.dock-btn .dock-label { font-size: 11px; line-height: 1.2; white-space: nowrap; }
+.dock-btn.on { color: var(--text); background: #222226; }
+.ctl-row .dock-btn { min-height: 48px; }
+.dock-swatch { width: 26px; height: 18px; border-radius: 4px; }
+.dock-swatch.round { width: 20px; height: 20px; border-radius: 50%; }
+.dock-btn.on .dock-swatch { box-shadow: 0 0 0 2px var(--bar), 0 0 0 3.5px var(--text); }
+.dock-edited { position: absolute; top: 5px; right: 10px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.app.mobile .stage-loader { inset: 0; height: auto; }
+.app.mobile .m-focus { width: 36px; padding: 0; justify-content: center; }
+
+/* Zoomed in: a spacer the size of the zoomed photo scrolls; the canvas covers only the visible part and sits over it */
+.zoom-space { flex: none; cursor: grab; }
+.zoom-space:active { cursor: grabbing; }
+.stage canvas.vp { position: absolute; margin: 0; max-width: none; max-height: none; pointer-events: none; }
