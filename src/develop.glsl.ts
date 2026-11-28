@@ -7,6 +7,7 @@ precision highp float;
 uniform sampler2D L, LUT, M; uniform bool isRaw;
 uniform float mkA[32]; uniform vec4 mkInv, mkOn, mkLod; // masks: 4 slots × 8 local adjustments, packed in M's RGBA
 uniform float lodTex, lodClar, lodHaze, lodSharp;
+uniform vec4 sub; // the part of the output frame this canvas shows (zoomed in: just the visible area)
 uniform float lodBase; // > 0 when drawing a reduced-size live preview: mip level matching one output pixel (no aliasing)
 uniform vec4 crop; uniform float angle, rotScale, aspect; uniform vec2 outSize; uniform int quarter; uniform vec2 flip; // aspect = rotated frame's
 uniform float ${SCALARS.map(n => 'u_' + n).join(',')};
@@ -44,7 +45,8 @@ float band(float arr[8], float h){ // piecewise-linear across band centres (part
 }
 
 void main(){
-  vec2 u = mapUV(uv);
+  vec2 q = sub.xy + uv * sub.zw; // position in the whole output frame
+  vec2 u = mapUV(q);
   if (any(lessThan(u, vec2(0.))) || any(greaterThan(u, vec2(1.)))) { o = vec4(0,0,0,1); return; }
 
   // Local adjustments: mask weights (source-frame) × each slot's settings, summed into offsets of the global ones
@@ -134,13 +136,13 @@ void main(){
   g = mix(vec3(gray), g, 1. + u_vibrance * (1. - clamp(sat, 0., 1.)));
 
   // Post-crop vignette + grain
-  vec2 dv = (uv - .5) * vec2(outSize.x / outSize.y, 1.);
+  vec2 dv = (q - .5) * vec2(outSize.x / outSize.y, 1.);
   float r = length(dv) / length(vec2(outSize.x / outSize.y, 1.) * .5);
   float m = smoothstep(u_vignetteMid * .9, 1.15, r);
   g = u_vignette < 0. ? g * (1. + u_vignette * m) : mix(g, vec3(1.), u_vignette * m);
   // Grain: size sets the cell in px (default 25 → 1.5 px); roughness blends smooth value noise (0) → blocky cells (50)
   // → blocky + a finer octave (100). Defaults reproduce the original grain exactly.
-  vec2 gp = uv * outSize / (1. + u_grainSize * 2.);
+  vec2 gp = q * outSize / (1. + u_grainSize * 2.);
   vec2 gi = floor(gp), gf = fract(gp), gs = gf * gf * (3. - 2. * gf);
   float smoothN = mix(mix(hash2(gi), hash2(gi + vec2(1, 0)), gs.x), mix(hash2(gi + vec2(0, 1)), hash2(gi + 1.), gs.x), gs.y) - .5;
   float n = mix(smoothN * 1.6, hash2(gi) - .5, clamp(u_grainRough * 2., 0., 1.));

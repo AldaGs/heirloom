@@ -89,6 +89,7 @@ E2E-encrypted sync (CRDT edit log), opt-in on-device AI modules (masking, denois
 ---
 
 ## Extras (after Phase 7)
+- ✅ Screen-size rendering (Lightroom-style): the develop canvas is drawn at the size it's shown (mip-filtered, so no moiré), and when zoomed in it covers only the visible area plus a 15% margin, placed over a spacer the size of the zoomed photo (native scrolling; redraw when a pan leaves the margin). Histogram, navigator and Auto use a small off-screen render of the whole frame. Export and AI still develop the full image. Masking/Remove keep the photo-sized canvas their overlays use.
 - ✅ Phone develop dock (Phosphor icons): categories on the bottom row, the selected category's controls above, the selected control's slider on top; curve, H/S/L mixer bands, grading, calibration and crop expand the top area; masking/AI tools show their panel there. The photo gets the rest of the screen.
 - ✅ Zoom: mouse wheel / trackpad pinch (ctrl+wheel) / two-finger touch pinch, anchored at the pointer, fit → 800%; drag to pan; double-click toggles Fit/100%; +/- keys; live % readout. Crop forces Fit; Remove/Mask overlays follow the zoomed image.
 - ✅ Rotate any angle (−180°…180°) + 90° buttons ([ / ] keys) + flip horizontal/vertical. The shader splits the angle into quarter turns + a ±45° straighten (auto-crop stays sensible), swaps output size on odd quarter turns, and the crop box turns/mirrors with the picture.

@@ -31,8 +31,6 @@ import { ArrowUUpLeft, ArrowUUpRight, CaretLeft, CornersOut, Export } from '@pho
 
 type Zoom = 'fit' | number; // number: 1 = 100% (one image pixel per device pixel)
 const ZOOM_MAX = 8;
-/** Controls whose effect is pixel-scale detail: a screen-size live preview can't show them, so they render full size. */
-const DETAIL = new Set(['sharpen', 'nrLuma', 'nrColor', 'texture', 'grain', 'grainSize', 'grainRough']);
 
 const withUrl = (p: Photo): Photo => ({ ...p, url: p.thumb ? URL.createObjectURL(p.thumb) : undefined });
 const ago = (t: number) => { const m = Math.floor((Date.now() - t) / 60000); return m < 1 ? 'now' : m < 60 ? `${m}m` : `${Math.floor(m / 60)}h`; };
@@ -244,40 +242,78 @@ export function App() {
     return () => { live = false; };
   }, [curId, mode, loadedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Live preview while a dial turns: draw only as many pixels as the screen shows (a 24 MP photo at Fit is ~2 MP on
-  // screen), then redraw at full resolution once it settles. Export and AI always use the full image, so nothing is lost.
+  // The canvas is drawn at screen size (like Lightroom): at Fit a 24 MP photo is ~1–3 MP on screen, so that's all the GPU
+  // draws; zoomed in, only the visible part is redrawn. Export and AI always develop the full image, so nothing is lost.
+  // While a dial moves ("live"), the histogram/navigator read-back (a GPU stall) runs a few times a second, not per frame.
   const [live, setLive] = useState(false);
   const liveT = useRef(0), lastHist = useRef(0);
   const goLive = () => { setLive(true); clearTimeout(liveT.current); liveT.current = window.setTimeout(() => setLive(false), 300); };
   const settle = () => { clearTimeout(liveT.current); setLive(false); };
-
-  // Render + histogram + navigator
+  const [stageV, setStageV] = useState(0); // stage resized (window, phone dock): redraw at the new screen size
   useEffect(() => {
-    if (!cur || loadedId !== cur.id || !view.current) return;
-    {
-      const geom = Object.fromEntries(GEOMETRY.map(k => [k, cur.v[k]]));
-      const v = bypass ? { ...base(cur), ...geom } : cur.v;
-      // fine-detail controls (sharpening, noise, texture, grain) only show at full resolution, so they always render it;
-      // Remove's brush layer is sized to the canvas, so it keeps full resolution too
-      const proxy = live && !removing && !DETAIL.has(lastTool) ? Math.min(1, scaleNow() * 1.02) : 1;
-      pipe.current!.render(sourceView ? { ...v, angle: 0, flipH: 0, flipV: 0 } : v, cur.asShot, cropping || sourceView, proxy); // Remove/Mask work on the unrotated full frame
-      // histogram + navigator read pixels back from the GPU (a pipeline stall): a few times a second while live is plenty
-      const now = performance.now();
-      if (live && now - lastHist.current < 150) return;
-      lastHist.current = now;
-      const h = histogram(view.current!);
-      drawHist(histC.current!, h);
-      if (miniHist.current) drawHist(miniHist.current, h);
-      const n = navC.current!, k = Math.min(n.width / view.current!.width, n.height / view.current!.height);
-      const g = n.getContext('2d')!;
-      g.clearRect(0, 0, n.width, n.height);
-      g.drawImage(view.current!, (n.width - view.current!.width * k) / 2, (n.height - view.current!.height * k) / 2, view.current!.width * k, view.current!.height * k);
-      if (!live) setFrame(f => f + 1); // navigator rectangle; not needed per live frame (it re-renders the whole app)
+    const s = stage.current; if (!s) return;
+    let t = 0;
+    const ro = new ResizeObserver(() => { clearTimeout(t); t = window.setTimeout(() => setStageV(x => x + 1), 60); });
+    ro.observe(s); return () => { ro.disconnect(); clearTimeout(t); };
+  }, []);
+  const navImg = useRef<OffscreenCanvas | null>(null);
+
+  type Box = { x: number; y: number; w: number; h: number };
+  /** What's on screen as fractions of the frame, grown by `m` per side (undefined at Fit: everything is). */
+  const visible = (m = 0): Box | undefined => {
+    const s = stage.current, c = frameEl(); if (!s || !c || zoom === 'fit') return undefined;
+    const cr = c.getBoundingClientRect(), sr = s.getBoundingClientRect();
+    if (!cr.width || !cr.height) return undefined;
+    const x = (sr.left - cr.left) / cr.width, y = (sr.top - cr.top) / cr.height, w = sr.width / cr.width, h = sr.height / cr.height;
+    return { x: x - w * m, y: y - h * m, w: w * (1 + 2 * m), h: h * (1 + 2 * m) };
+  };
+  /** Area drawn with the latest settings (undefined = the whole frame). */
+  const drawn = useRef<Box | undefined>(undefined);
+  const frameValues = () => {
+    if (!cur) return undefined;
+    const geom = Object.fromEntries(GEOMETRY.map(k => [k, cur.v[k]]));
+    const v = bypass ? { ...base(cur), ...geom } : cur.v;
+    return sourceView ? { ...v, angle: 0, flipH: 0, flipV: 0 } : v; // Remove/Mask work on the unrotated full frame
+  };
+  // Zoomed in (plain editing): the canvas covers only the visible area plus a margin and sits over a spacer the size of the
+  // zoomed photo, so the stage scrolls natively. A photo-sized canvas would be slow to composite and, past ~16.7 MP,
+  // over iOS Safari's canvas limit. Masking/Remove keep the photo-sized canvas their overlays are built on.
+  const viewport = zoom !== 'fit' && !sourceView && !cropping;
+  const space = useRef<HTMLDivElement>(null);
+  const frameEl = (): HTMLElement | null => (viewport ? space.current : view.current);
+  const placed = useRef(false);
+  /** Draw the canvas. Remove's brush layer must match the photo's pixels, so Remove draws at full size. */
+  const draw = () => {
+    const v = frameValues(), c = view.current; if (!v || !pipe.current || !c) return;
+    const scale = removing ? 1 : Math.min(1, scaleNow() * 1.02);
+    const vis = viewport ? visible(0.15) : undefined, sp = space.current;
+    if (vis && sp) {
+      const x0 = Math.max(0, vis.x), y0 = Math.max(0, vis.y), x1 = Math.min(1, vis.x + vis.w), y1 = Math.min(1, vis.y + vis.h);
+      const box = { x: x0, y: y0, w: Math.max(1e-4, x1 - x0), h: Math.max(1e-4, y1 - y0) };
+      pipe.current.render(v, cur!.asShot, cropping || sourceView, scale, box);
+      Object.assign(c.style, { left: `${sp.offsetLeft + box.x * sp.offsetWidth}px`, top: `${sp.offsetTop + box.y * sp.offsetHeight}px`,
+        width: `${box.w * sp.offsetWidth}px`, height: `${box.h * sp.offsetHeight}px` });
+      placed.current = true; drawn.current = box;
+    } else {
+      if (placed.current) { Object.assign(c.style, { left: '', top: '', width: canvasStyle?.width != null ? `${canvasStyle.width}px` : '', height: '' }); placed.current = false; }
+      pipe.current.render(v, cur!.asShot, cropping || sourceView, scale);
+      drawn.current = undefined;
     }
-  }, [cur?.v, bypass, loadedId, cropping, sourceView, maskVer, live]); // eslint-disable-line react-hooks/exhaustive-deps
+  };
+  const drawRef = useRef(draw); drawRef.current = draw;
+
+  // Zoomed in: panning past the drawn margin brings in pixels not drawn with the latest settings → redraw there
+  const scrollDraw = useRef(0);
+  const redrawVisible = () => {
+    const d = drawn.current, v = visible();
+    if (scrollDraw.current || !d || !v) return;
+    if (v.x >= d.x && v.y >= d.y && v.x + v.w <= d.x + d.w && v.y + v.h <= d.y + d.h) return;
+    scrollDraw.current = requestAnimationFrame(() => { scrollDraw.current = 0; drawRef.current(); });
+  };
 
   const onScroll = () => {
     const s = stage.current!;
+    redrawVisible();
     setNav({ x: s.scrollLeft / s.scrollWidth, y: s.scrollTop / s.scrollHeight, w: s.clientWidth / s.scrollWidth, h: s.clientHeight / s.scrollHeight });
   };
   useEffect(onScroll, [zoom, frame]);
@@ -295,18 +331,42 @@ export function App() {
   const scaleNow = () => (zoom === 'fit' ? fitScale() : zoom);
   /** Zoom to `next` keeping the image point under (clientX, clientY) in place. */
   const zoomAt = (next: number, clientX: number, clientY: number) => {
-    const s = stage.current, c = view.current; if (!s || !c || !cur) return;
+    const s = stage.current, c = frameEl(); if (!s || !c || !cur) return;
     const fit = fitScale(), z = Math.min(ZOOM_MAX, Math.max(fit, next));
     const cr = c.getBoundingClientRect(), sr = s.getBoundingClientRect();
     anchor.current = { rx: (clientX - cr.left) / cr.width, ry: (clientY - cr.top) / cr.height, cx: clientX - sr.left, cy: clientY - sr.top };
     setZoom(z <= fit * 1.001 ? 'fit' : +z.toFixed(4));
   };
   useLayoutEffect(() => {
-    const a = anchor.current, s = stage.current, c = view.current; anchor.current = null;
+    const a = anchor.current, s = stage.current, c = frameEl(); anchor.current = null;
     if (!a || !s || !c || zoom === 'fit') return;
     s.scrollLeft = c.offsetLeft + a.rx * c.offsetWidth - a.cx;
     s.scrollTop = c.offsetTop + a.ry * c.offsetHeight - a.cy;
   }, [zoom]);
+
+  // Render + histogram + navigator. A layout effect, after the zoom anchor above: the canvas is drawn and placed for the
+  // new zoom/scroll before the browser paints, so zooming never shows a misplaced frame.
+  useLayoutEffect(() => {
+    if (!cur || loadedId !== cur.id || !view.current) return;
+    draw();
+    const now = performance.now();
+    if (live && now - lastHist.current < 150) return;
+    lastHist.current = now;
+    // histogram + navigator from a small off-screen render of the whole frame (complete even when zoomed in)
+    const img = pipe.current!.preview(frameValues()!, cur.asShot, cropping || sourceView, 360);
+    if (!img) return;
+    const h = histogram(img);
+    drawHist(histC.current!, h);
+    if (miniHist.current) drawHist(miniHist.current, h);
+    const t = (navImg.current ??= new OffscreenCanvas(1, 1));
+    if (t.width !== img.width || t.height !== img.height) { t.width = img.width; t.height = img.height; }
+    t.getContext('2d')!.putImageData(img, 0, 0);
+    const n = navC.current!, k = Math.min(n.width / img.width, n.height / img.height), g = n.getContext('2d')!;
+    g.clearRect(0, 0, n.width, n.height);
+    g.drawImage(t, (n.width - img.width * k) / 2, (n.height - img.height * k) / 2, img.width * k, img.height * k);
+    if (!live) setFrame(f => f + 1); // navigator rectangle; not needed per live frame (it re-renders the whole app)
+  }, [cur?.v, bypass, loadedId, cropping, sourceView, removing, maskVer, live, zoom, stageV, viewport]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const zoomRef = useRef(zoomAt); zoomRef.current = zoomAt;
   const scaleRef = useRef(scaleNow); scaleRef.current = scaleNow;
   useEffect(() => {
@@ -367,8 +427,9 @@ export function App() {
   const redo = () => update(p => syncLayers(goto(p, p.hi + 1)));
   const auto = () => {
     if (!cur || !view.current) return;
-    pipe.current!.render(base(cur), cur.asShot);
-    const exposure = +autoExposure(histogram(view.current)).toFixed(3);
+    const img = pipe.current!.preview(base(cur), cur.asShot, false, 512);
+    if (!img) return;
+    const exposure = +autoExposure(histogram(img)).toFixed(3);
     update(p => push(p, { ...p.v, exposure }, 'Auto'));
   };
   // AI Remove: model sees the unedited image (earlier removals included); result goes into the photo's retouch layer
@@ -531,7 +592,8 @@ export function App() {
     return () => { removeEventListener('keydown', down); removeEventListener('keyup', up); };
   });
 
-  const canvasStyle = zoom === 'fit' || !cur ? undefined : { width: (fullSize().w * zoom) / devicePixelRatio, maxWidth: 'none', maxHeight: 'none' };
+  const zoomW = cur && zoom !== 'fit' ? (fullSize().w * zoom) / devicePixelRatio : 0, zoomH = cur && zoom !== 'fit' ? (fullSize().h * zoom) / devicePixelRatio : 0;
+  const canvasStyle = zoom === 'fit' || !cur || viewport ? undefined : { width: zoomW, maxWidth: 'none', maxHeight: 'none' };
   useEffect(() => { if (cropping) setZoom('fit'); }, [cropping]);
   const list = photos.filter(p => FILTERS[filter][1](p) && inAlbum(album)(p)).sort(byDate); // Library order, also used by Cull + filmstrip
   const loading = mode === 'develop' && !!cur && loadedId !== cur.id;
@@ -636,7 +698,8 @@ export function App() {
           onTouchStart={e => { swipe.current = e.touches.length === 1 ? e.touches[0].clientY : null; }}
           onTouchEnd={e => { const y0 = swipe.current; swipe.current = null; if (y0 !== null && zoom === 'fit' && Math.abs(e.changedTouches[0].clientY - y0) > 80) setFocus(f => !f); }}>
           {!cur && <div className="empty">Drop photos anywhere or <button className="primary" onClick={() => fileIn.current!.click()}>Import…</button></div>}
-          <canvas ref={view} hidden={!cur} style={canvasStyle} />
+          {viewport && cur && <div className="zoom-space" ref={space} style={{ width: zoomW, height: zoomH }} />}
+          <canvas ref={view} hidden={!cur} style={canvasStyle} className={viewport ? 'vp' : undefined} />
         </div>
         {/* Heavy decode (RAW demosaic, GPU upload) → animated field so the app never looks frozen */}
         <div className={'stage-loader' + (loading ? ' on' : '')} aria-hidden={!loading}>

@@ -79,6 +79,7 @@ export function createPipeline(canvas: HTMLCanvasElement) {
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
   let maskOn = [0, 0, 0, 0], maskLevels = 0;
   gl.activeTexture(gl.TEXTURE0);
+  let small: { t: WebGLTexture | null; w: number; h: number } = { t: null, w: 0, h: 0 };
   let full = { w: 1, h: 1 }; // last frame's full-resolution size (the canvas may be a smaller live preview)
   let lin: WebGLTexture | null = null, isRaw = false, srcW = 1, srcH = 1, lods = { lodTex: 0, lodClar: 0, lodHaze: 0, lodSharp: 0 };
 
@@ -89,6 +90,38 @@ export function createPipeline(canvas: HTMLCanvasElement) {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     return t;
+  };
+
+  /** Bind textures and set every develop uniform except lodBase / viewport. Returns the full-resolution output size. */
+  const setup = (v: Values, asShot: number, fullFrame: boolean) => {
+    const cr = fullFrame ? [0, 0, 1, 1] : [v.cropX, v.cropY, v.cropW, v.cropH];
+    const turned = orient(v.angle ?? 0).quarter % 2 === 1, fw = turned ? srcH : srcW, fh = turned ? srcW : srcH;
+    const cw = Math.max(1, Math.round(cr[2] * fw)), ch = Math.max(1, Math.round(cr[3] * fh));
+    gl.useProgram(dev);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, lut);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, 1, gl.RED, gl.FLOAT, buildLut(v));
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, lin);
+    for (const [k, x] of Object.entries(uniforms(v, asShot))) gl.uniform1f(loc('u_' + k), x);
+    for (const [k, x] of Object.entries(lods)) gl.uniform1f(loc(k), x);
+    gl.uniform1i(loc('isRaw'), +isRaw);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, maskTex); gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1fv(loc('mkA[0]'), maskUniforms(v));
+    gl.uniform4fv(loc('mkInv'), Array.from({ length: MASKS }, (_, i) => (v[maskKey(i, 'inv')] ? 1 : 0)));
+    gl.uniform4fv(loc('mkOn'), maskOn);
+    // Feather 100 ≈ 1/16 of the frame's long side (mask is ≤2048 px, so ~5 levels down)
+    gl.uniform4fv(loc('mkLod'), Array.from({ length: MASKS }, (_, i) => ((v[maskKey(i, 'feather')] ?? 0) / 100) * Math.max(0, maskLevels - 4)));
+    const { quarter, rest } = orient(v.angle ?? 0), a = (rest * Math.PI) / 180, asp = quarter % 2 ? srcH / srcW : srcW / srcH;
+    gl.uniform1i(loc('quarter'), quarter); gl.uniform2f(loc('flip'), v.flipH ? 1 : 0, v.flipV ? 1 : 0);
+    gl.uniform4f(loc('crop'), cr[0], cr[1], cr[2], cr[3]);
+    gl.uniform1f(loc('angle'), a); gl.uniform1f(loc('aspect'), asp);
+    gl.uniform1f(loc('rotScale'), Math.cos(Math.abs(a)) + Math.sin(Math.abs(a)) * Math.max(asp, 1 / asp));
+    gl.uniform2f(loc('outSize'), cw, ch);
+    for (const p of ['hue', 'sat', 'lum'] as const) gl.uniform1fv(loc(p + 'A'), BANDS.map(([b]) => v[`${p}_${b}`] / 100));
+    gl.uniformMatrix3fv(loc('calib'), false, calibration(v));
+    gl.uniform3fv(loc('gShadow'), gradeTint(v.gradeShadowHue, v.gradeShadowSat));
+    gl.uniform3fv(loc('gMid'), gradeTint(v.gradeMidHue, v.gradeMidSat));
+    gl.uniform3fv(loc('gHigh'), gradeTint(v.gradeHighHue, v.gradeHighSat));
+    return { cw, ch };
   };
 
   return {
@@ -170,44 +203,47 @@ export function createPipeline(canvas: HTMLCanvasElement) {
     },
     /** Full-resolution size of the last frame (what export produces), whatever size the canvas was drawn at. */
     size: () => full,
-    /** fullFrame: ignore the crop (used while the crop tool is open).
-     *  scale < 1: live preview — draw fewer pixels (e.g. screen size while a dial turns); looks the same on screen. */
-    render(v: Values, asShot = 5500, fullFrame = false, scale = 1) {
+    /** Draw the developed image to the canvas.
+     *  fullFrame: ignore the crop (used while the crop tool is open).
+     *  scale: canvas pixels per image pixel (≤ 1) — the screen size, so the GPU never works on pixels nobody sees.
+     *  sub: draw only this part of the frame (fractions, top-left origin) — zoomed in, the canvas covers just what's visible. */
+    render(v: Values, asShot = 5500, fullFrame = false, scale = 1, sub = { x: 0, y: 0, w: 1, h: 1 }) {
       if (!lin) return;
-      const cr = fullFrame ? [0, 0, 1, 1] : [v.cropX, v.cropY, v.cropW, v.cropH];
-      const turned = orient(v.angle ?? 0).quarter % 2 === 1, fw = turned ? srcH : srcW, fh = turned ? srcW : srcH;
-      const cw = Math.max(1, Math.round(cr[2] * fw)), ch = Math.max(1, Math.round(cr[3] * fh));
+      const { cw, ch } = setup(v, asShot, fullFrame);
       full = { w: cw, h: ch };
       const k = Math.min(1, Math.max(scale, 1 / Math.max(cw, ch)));
-      const ow = Math.max(1, Math.round(cw * k)), oh = Math.max(1, Math.round(ch * k));
+      const ow = Math.max(1, Math.round(sub.w * cw * k)), oh = Math.max(1, Math.round(sub.h * ch * k));
       if (canvas.width !== ow || canvas.height !== oh) { canvas.width = ow; canvas.height = oh; }
-      gl.useProgram(dev);
-      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, lut);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, 1, gl.RED, gl.FLOAT, buildLut(v));
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, lin);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, ow, oh);
-      gl.uniform1f(loc('lodBase'), Math.max(0, Math.log2(cw / ow)));
-      for (const [k, x] of Object.entries(uniforms(v, asShot))) gl.uniform1f(loc('u_' + k), x);
-      for (const [k, x] of Object.entries(lods)) gl.uniform1f(loc(k), x);
-      gl.uniform1i(loc('isRaw'), +isRaw);
-      gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, maskTex); gl.activeTexture(gl.TEXTURE0);
-      gl.uniform1fv(loc('mkA[0]'), maskUniforms(v));
-      gl.uniform4fv(loc('mkInv'), Array.from({ length: MASKS }, (_, i) => (v[maskKey(i, 'inv')] ? 1 : 0)));
-      gl.uniform4fv(loc('mkOn'), maskOn);
-      // Feather 100 ≈ 1/16 of the frame's long side (mask is ≤2048 px, so ~5 levels down)
-      gl.uniform4fv(loc('mkLod'), Array.from({ length: MASKS }, (_, i) => ((v[maskKey(i, 'feather')] ?? 0) / 100) * Math.max(0, maskLevels - 4)));
-      const { quarter, rest } = orient(v.angle ?? 0), a = (rest * Math.PI) / 180, asp = quarter % 2 ? srcH / srcW : srcW / srcH;
-      gl.uniform1i(loc('quarter'), quarter); gl.uniform2f(loc('flip'), v.flipH ? 1 : 0, v.flipV ? 1 : 0);
-      gl.uniform4f(loc('crop'), cr[0], cr[1], cr[2], cr[3]);
-      gl.uniform1f(loc('angle'), a); gl.uniform1f(loc('aspect'), asp);
-      gl.uniform1f(loc('rotScale'), Math.cos(Math.abs(a)) + Math.sin(Math.abs(a)) * Math.max(asp, 1 / asp));
-      gl.uniform2f(loc('outSize'), cw, ch);
-      for (const p of ['hue', 'sat', 'lum'] as const) gl.uniform1fv(loc(p + 'A'), BANDS.map(([b]) => v[`${p}_${b}`] / 100));
-      gl.uniformMatrix3fv(loc('calib'), false, calibration(v));
-      gl.uniform3fv(loc('gShadow'), gradeTint(v.gradeShadowHue, v.gradeShadowSat));
-      gl.uniform3fv(loc('gMid'), gradeTint(v.gradeMidHue, v.gradeMidSat));
-      gl.uniform3fv(loc('gHigh'), gradeTint(v.gradeHighHue, v.gradeHighSat));
+      gl.uniform1f(loc('lodBase'), Math.max(0, -Math.log2(k)));
+      gl.uniform4f(loc('sub'), sub.x, sub.y, sub.w, sub.h);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    },
+    /** The whole developed frame, small (long side `long` px, 8-bit sRGB, top row first): histogram, navigator, auto.
+     *  Drawn off-screen, so it's always complete even when the canvas only shows a zoomed-in part. */
+    preview(v: Values, asShot = 5500, fullFrame = false, long = 256): ImageData | undefined {
+      if (!lin) return;
+      const { cw, ch } = setup(v, asShot, fullFrame);
+      const k = Math.min(1, long / Math.max(cw, ch)), pw = Math.max(1, Math.round(cw * k)), ph = Math.max(1, Math.round(ch * k));
+      if (small.w !== pw || small.h !== ph) {
+        if (small.t) gl.deleteTexture(small.t);
+        small = { t: tex(gl.NEAREST), w: pw, h: ph }; gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, pw, ph);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, lin);
+      }
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, small.t, 0);
+      gl.viewport(0, 0, pw, ph);
+      gl.uniform1f(loc('lodBase'), Math.max(0, Math.log2(cw / pw)));
+      gl.uniform4f(loc('sub'), 0, 0, 1, 1);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      const px = new Uint8ClampedArray(pw * ph * 4), row = pw * 4;
+      gl.readPixels(0, 0, pw, ph, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      // the develop pass is laid out for the screen (image top = last framebuffer row); readPixels starts at row 0 → flip
+      const out = new Uint8ClampedArray(px.length);
+      for (let y = 0; y < ph; y++) out.set(px.subarray((ph - 1 - y) * row, (ph - y) * row), y * row);
+      return new ImageData(out, pw, ph);
     },
   };
 }
@@ -243,11 +279,12 @@ export function gradeTint(hue: number, sat: number) {
   return rgb.map(x => (x - l) * (sat / 100) * 0.45);
 }
 
-/** RGB histograms (256 bins) from a GPU-downscaled copy of the canvas. */
-const small = new OffscreenCanvas(256, 256).getContext('2d', { willReadFrequently: true })!;
-export function histogram(src: CanvasImageSource) {
-  small.drawImage(src, 0, 0, 256, 256);
-  const d = small.getImageData(0, 0, 256, 256).data;
+/** RGB histograms (256 bins) from pixels: a canvas (downscaled to 256² first) or a small preview's ImageData. */
+const hc = new OffscreenCanvas(256, 256).getContext('2d', { willReadFrequently: true })!;
+export function histogram(src: CanvasImageSource | ImageData) {
+  let d: Uint8ClampedArray;
+  if (src instanceof ImageData) d = src.data;
+  else { hc.drawImage(src, 0, 0, 256, 256); d = hc.getImageData(0, 0, 256, 256).data; }
   const h = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
   for (let i = 0; i < d.length; i += 4) { h[0][d[i]]++; h[1][d[i + 1]]++; h[2][d[i + 2]]++; }
   return h;

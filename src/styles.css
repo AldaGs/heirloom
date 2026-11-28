@@ -402,3 +402,8 @@ h4 { margin: 16px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .08e
 .dock-edited { position: absolute; top: 5px; right: 10px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
 .app.mobile .stage-loader { inset: 0; height: auto; }
 .app.mobile .m-focus { width: 36px; padding: 0; justify-content: center; }
+
+/* Zoomed in: a spacer the size of the zoomed photo scrolls; the canvas covers only the visible part and sits over it */
+.zoom-space { flex: none; cursor: grab; }
+.zoom-space:active { cursor: grabbing; }
+.stage canvas.vp { position: absolute; margin: 0; max-width: none; max-height: none; pointer-events: none; }
