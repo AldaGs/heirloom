@@ -31,6 +31,8 @@ import { ArrowUUpLeft, ArrowUUpRight, CaretLeft, CornersOut, Export } from '@pho
 
 type Zoom = 'fit' | number; // number: 1 = 100% (one image pixel per device pixel)
 const ZOOM_MAX = 8;
+/** Controls whose effect is pixel-scale detail: a screen-size live preview can't show them, so they render full size. */
+const DETAIL = new Set(['sharpen', 'nrLuma', 'nrColor', 'texture', 'grain', 'grainSize', 'grainRough']);
 
 const withUrl = (p: Photo): Photo => ({ ...p, url: p.thumb ? URL.createObjectURL(p.thumb) : undefined });
 const ago = (t: number) => { const m = Math.floor((Date.now() - t) / 60000); return m < 1 ? 'now' : m < 60 ? `${m}m` : `${Math.floor(m / 60)}h`; };
@@ -242,13 +244,27 @@ export function App() {
     return () => { live = false; };
   }, [curId, mode, loadedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Live preview while a dial turns: draw only as many pixels as the screen shows (a 24 MP photo at Fit is ~2 MP on
+  // screen), then redraw at full resolution once it settles. Export and AI always use the full image, so nothing is lost.
+  const [live, setLive] = useState(false);
+  const liveT = useRef(0), lastHist = useRef(0);
+  const goLive = () => { setLive(true); clearTimeout(liveT.current); liveT.current = window.setTimeout(() => setLive(false), 300); };
+  const settle = () => { clearTimeout(liveT.current); setLive(false); };
+
   // Render + histogram + navigator
   useEffect(() => {
     if (!cur || loadedId !== cur.id || !view.current) return;
     {
       const geom = Object.fromEntries(GEOMETRY.map(k => [k, cur.v[k]]));
       const v = bypass ? { ...base(cur), ...geom } : cur.v;
-      pipe.current!.render(sourceView ? { ...v, angle: 0, flipH: 0, flipV: 0 } : v, cur.asShot, cropping || sourceView); // Remove/Mask work on the unrotated full frame
+      // fine-detail controls (sharpening, noise, texture, grain) only show at full resolution, so they always render it;
+      // Remove's brush layer is sized to the canvas, so it keeps full resolution too
+      const proxy = live && !removing && !DETAIL.has(lastTool) ? Math.min(1, scaleNow() * 1.02) : 1;
+      pipe.current!.render(sourceView ? { ...v, angle: 0, flipH: 0, flipV: 0 } : v, cur.asShot, cropping || sourceView, proxy); // Remove/Mask work on the unrotated full frame
+      // histogram + navigator read pixels back from the GPU (a pipeline stall): a few times a second while live is plenty
+      const now = performance.now();
+      if (live && now - lastHist.current < 150) return;
+      lastHist.current = now;
       const h = histogram(view.current!);
       drawHist(histC.current!, h);
       if (miniHist.current) drawHist(miniHist.current, h);
@@ -256,9 +272,9 @@ export function App() {
       const g = n.getContext('2d')!;
       g.clearRect(0, 0, n.width, n.height);
       g.drawImage(view.current!, (n.width - view.current!.width * k) / 2, (n.height - view.current!.height * k) / 2, view.current!.width * k, view.current!.height * k);
-      setFrame(f => f + 1);
+      if (!live) setFrame(f => f + 1); // navigator rectangle; not needed per live frame (it re-renders the whole app)
     }
-  }, [cur?.v, bypass, loadedId, cropping, sourceView, maskVer]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cur?.v, bypass, loadedId, cropping, sourceView, maskVer, live]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onScroll = () => {
     const s = stage.current!;
@@ -269,9 +285,12 @@ export function App() {
   // ---- Continuous zoom: wheel / trackpad pinch / touch pinch, anchored at the pointer; drag to pan ----
   const anchor = useRef<{ rx: number; ry: number; cx: number; cy: number } | null>(null);
   const PAD = () => (mobile ? 8 : 32);
+  /** Full-resolution frame size: zoom is in image pixels, whatever size the canvas is drawn at right now. */
+  const fullSize = () => pipe.current?.size() ?? { w: view.current?.width ?? 1, h: view.current?.height ?? 1 };
   const fitScale = () => {
     const s = stage.current, c = view.current; if (!s || !c?.width) return 1;
-    return Math.min((s.clientWidth - 2 * PAD()) / c.width, (s.clientHeight - 2 * PAD()) / c.height) * devicePixelRatio;
+    const f = fullSize();
+    return Math.min((s.clientWidth - 2 * PAD()) / f.w, (s.clientHeight - 2 * PAD()) / f.h) * devicePixelRatio;
   };
   const scaleNow = () => (zoom === 'fit' ? fitScale() : zoom);
   /** Zoom to `next` keeping the image point under (clientX, clientY) in place. */
@@ -319,7 +338,7 @@ export function App() {
   const pan = useRef<{ x: number; y: number } | null>(null);
 
   // Actions
-  const setVal = (k: string, x: number) => { setLastTool(k); update(p => ({ ...p, v: { ...p.v, [k]: x } })); };
+  const setVal = (k: string, x: number) => { if (k !== lastTool) setLastTool(k); goLive(); update(p => ({ ...p, v: { ...p.v, [k]: x } })); };
   // Crop tool (FIXER_IMPROVEMENTS §4 geometry). Rect is a fraction of the straightened frame.
   const ratioOf = (name: string) => { const r = ASPECTS.find(a => a[0] === name)?.[1]; return r === 'orig' ? (cur ? frameAspect(cur.w, cur.h, cur.v.angle) : null) : r ?? null; };
   const setRect = (r: Rect) => update(p => ({ ...p, v: { ...p.v, ...r } }));
@@ -341,7 +360,7 @@ export function App() {
     const b = base(p);
     return push(p, { ...p.v, ...Object.fromEntries(keys.map(k => [k, b[k]])) }, label);
   });
-  const commit = () => update(p => push(p, p.v));
+  const commit = () => { settle(); update(p => push(p, p.v)); };
   // History steps can carry an AI Remove layer: syncLayers puts the right one in effect
   const jump = (i: number) => update(p => syncLayers(goto(p, i)));
   const undo = () => update(p => syncLayers(goto(p, p.hi - 1)));
@@ -412,7 +431,7 @@ export function App() {
   const embKey = cur ? `${cur.id}:${cur.hist[cur.hi].rt ?? ''}` : '';
   const slots = Array.from({ length: MASKS }, (_, i) => !!cur?.masks?.[i]);
   const freeSlot = slots.indexOf(false);
-  const mSize = view.current && masking ? maskSize(view.current.width, view.current.height) : { w: 1, h: 1 };
+  const mSize = view.current && masking ? maskSize(fullSize().w, fullSize().h) : { w: 1, h: 1 };
   const endMaskEdit = () => { setMMode({ kind: 'idle' }); setPick({ pts: [] }); setWork(null); };
   const commitMask = async (slot: number, img: ImageData, label: string) => {
     const c = new OffscreenCanvas(img.width, img.height); c.getContext('2d')!.putImageData(img, 0, 0);
@@ -512,7 +531,7 @@ export function App() {
     return () => { removeEventListener('keydown', down); removeEventListener('keyup', up); };
   });
 
-  const canvasStyle = zoom === 'fit' || !cur ? undefined : { width: ((view.current?.width ?? cur.w) * zoom) / devicePixelRatio, maxWidth: 'none', maxHeight: 'none' };
+  const canvasStyle = zoom === 'fit' || !cur ? undefined : { width: (fullSize().w * zoom) / devicePixelRatio, maxWidth: 'none', maxHeight: 'none' };
   useEffect(() => { if (cropping) setZoom('fit'); }, [cropping]);
   const list = photos.filter(p => FILTERS[filter][1](p) && inAlbum(album)(p)).sort(byDate); // Library order, also used by Cull + filmstrip
   const loading = mode === 'develop' && !!cur && loadedId !== cur.id;

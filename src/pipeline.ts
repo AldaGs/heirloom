@@ -79,6 +79,7 @@ export function createPipeline(canvas: HTMLCanvasElement) {
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
   let maskOn = [0, 0, 0, 0], maskLevels = 0;
   gl.activeTexture(gl.TEXTURE0);
+  let full = { w: 1, h: 1 }; // last frame's full-resolution size (the canvas may be a smaller live preview)
   let lin: WebGLTexture | null = null, isRaw = false, srcW = 1, srcH = 1, lods = { lodTex: 0, lodClar: 0, lodHaze: 0, lodSharp: 0 };
 
   const tex = (filter: number) => {
@@ -136,7 +137,7 @@ export function createPipeline(canvas: HTMLCanvasElement) {
       // Blur radii scale with resolution (~4 px / ~60 px / ~250 px at 6000 px wide)
       const base = Math.max(0, Math.log2(Math.max(w, h) / 1500));
       lods = { lodTex: base + 1, lodClar: base + 4, lodHaze: base + 6, lodSharp: Math.max(0.5, base - 0.5) };
-      canvas.width = srcW = w; canvas.height = srcH = h; isRaw = s.kind === 'raw';
+      canvas.width = srcW = w; canvas.height = srcH = h; full = { w, h }; isRaw = s.kind === 'raw';
     },
     /** Mask slots as 8-bit coverage (R channel used), all the same size; undefined = empty slot. */
     setMasks(masks: (ImageData | undefined)[]) {
@@ -167,18 +168,25 @@ export function createPipeline(canvas: HTMLCanvasElement) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.deleteTexture(t);
       return new ImageData(px, srcW, srcH);
     },
-    /** fullFrame: ignore the crop (used while the crop tool is open). */
-    render(v: Values, asShot = 5500, fullFrame = false) {
+    /** Full-resolution size of the last frame (what export produces), whatever size the canvas was drawn at. */
+    size: () => full,
+    /** fullFrame: ignore the crop (used while the crop tool is open).
+     *  scale < 1: live preview — draw fewer pixels (e.g. screen size while a dial turns); looks the same on screen. */
+    render(v: Values, asShot = 5500, fullFrame = false, scale = 1) {
       if (!lin) return;
       const cr = fullFrame ? [0, 0, 1, 1] : [v.cropX, v.cropY, v.cropW, v.cropH];
       const turned = orient(v.angle ?? 0).quarter % 2 === 1, fw = turned ? srcH : srcW, fh = turned ? srcW : srcH;
       const cw = Math.max(1, Math.round(cr[2] * fw)), ch = Math.max(1, Math.round(cr[3] * fh));
-      if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
+      full = { w: cw, h: ch };
+      const k = Math.min(1, Math.max(scale, 1 / Math.max(cw, ch)));
+      const ow = Math.max(1, Math.round(cw * k)), oh = Math.max(1, Math.round(ch * k));
+      if (canvas.width !== ow || canvas.height !== oh) { canvas.width = ow; canvas.height = oh; }
       gl.useProgram(dev);
       gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, lut);
       gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, 1, gl.RED, gl.FLOAT, buildLut(v));
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, lin);
-      gl.viewport(0, 0, cw, ch);
+      gl.viewport(0, 0, ow, oh);
+      gl.uniform1f(loc('lodBase'), Math.max(0, Math.log2(cw / ow)));
       for (const [k, x] of Object.entries(uniforms(v, asShot))) gl.uniform1f(loc('u_' + k), x);
       for (const [k, x] of Object.entries(lods)) gl.uniform1f(loc(k), x);
       gl.uniform1i(loc('isRaw'), +isRaw);

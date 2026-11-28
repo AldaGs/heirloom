@@ -7,6 +7,7 @@ precision highp float;
 uniform sampler2D L, LUT, M; uniform bool isRaw;
 uniform float mkA[32]; uniform vec4 mkInv, mkOn, mkLod; // masks: 4 slots × 8 local adjustments, packed in M's RGBA
 uniform float lodTex, lodClar, lodHaze, lodSharp;
+uniform float lodBase; // > 0 when drawing a reduced-size live preview: mip level matching one output pixel (no aliasing)
 uniform vec4 crop; uniform float angle, rotScale, aspect; uniform vec2 outSize; uniform int quarter; uniform vec2 flip; // aspect = rotated frame's
 uniform float ${SCALARS.map(n => 'u_' + n).join(',')};
 uniform float hueA[8], satA[8], lumA[8];
@@ -56,25 +57,25 @@ void main(){
 
   // Lateral chromatic aberration: scale red/blue planes around the optical centre
   vec2 dc = u - .5;
-  vec3 c = vec3(textureLod(L, .5 + dc * (1. + u_ca * .004), 0.).r, textureLod(L, u, 0.).g, textureLod(L, .5 + dc * (1. - u_ca * .004), 0.).b);
+  vec3 c = vec3(textureLod(L, .5 + dc * (1. + u_ca * .004), lodBase).r, textureLod(L, u, lodBase).g, textureLod(L, .5 + dc * (1. - u_ca * .004), lodBase).b);
 
   // Detail: edge-aware luma NR, chroma NR, unsharp-mask sharpening (mip levels as blurs)
   float y = max(luma(c), 1e-5);
-  vec3 bl = textureLod(L, u, lodSharp + .5).rgb;
+  vec3 bl = textureLod(L, u, max(lodSharp + .5, lodBase)).rgb;
   float yb = max(luma(bl), 1e-5);
   float wN = u_nrLuma * (1. - smoothstep(.05, .45, abs(log2(y / yb))));
   c *= mix(y, yb, wN) / y;
-  vec3 bc = textureLod(L, u, lodSharp + 2.).rgb;
+  vec3 bc = textureLod(L, u, max(lodSharp + 2., lodBase)).rgb;
   c = mix(c, bc * (luma(c) / max(luma(bc), 1e-5)), u_nrColor);
   y = max(luma(c), 1e-5);
-  float ys = max(luma(textureLod(L, u, lodSharp).rgb), 1e-5);
+  float ys = max(luma(textureLod(L, u, max(lodSharp, lodBase)).rgb), 1e-5);
   c *= exp2(clamp(log2(y / ys) * u_sharpen * 1.2, -1., 1.));
 
   // Texture / Clarity: log-luma deviation from blurred versions
   float ev = exp2(u_exposure + lE);
   y = max(luma(c), 1e-5);
-  float dT = log2(y / max(luma(textureLod(L, u, lodTex).rgb), 1e-5));
-  float dC = log2(y / max(luma(textureLod(L, u, lodClar).rgb), 1e-5));
+  float dT = log2(y / max(luma(textureLod(L, u, max(lodTex, lodBase)).rgb), 1e-5));
+  float dC = log2(y / max(luma(textureLod(L, u, max(lodClar, lodBase)).rgb), 1e-5));
   float mid = clamp(1. - abs(log2(y * ev) + 2.5) / 4., 0., 1.);
   c *= exp2(clamp(dT * u_texture * .8 + dC * (u_clarity + lCl) * .6 * mid, -2., 2.));
 
@@ -85,7 +86,7 @@ void main(){
   float tp = u_temp + lT, tn = u_tint + lTi;
   c *= vec3(1.+tp*.4, 1.-tn*.3, 1.-tp*.4) * ev;
 
-  vec3 hz = textureLod(L, u, lodHaze).rgb * ev;
+  vec3 hz = textureLod(L, u, max(lodHaze, lodBase)).rgb * ev;
   float t = clamp(1. - u_dehaze * .6 * clamp(min(hz.r, min(hz.g, hz.b)), 0., 1.), .4, 2.);
   c = max((c - (1. - t)) / t, 0.);
 
