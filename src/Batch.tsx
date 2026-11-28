@@ -7,7 +7,7 @@ import { developFull, developPreview } from './render.ts';
 import { usePref } from './prefs.ts';
 import type { Photo } from './library.ts';
 import type { Values } from './sliders.ts';
-import { AI_MODULES, MODELS, modelInstalled, removeAiData, storedAiData, type StoredItem } from './ai.ts';
+import { AI_MODULES, MODELS, modelAvailable, removeAiData, storedAiData, type StoredItem } from './ai.ts';
 
 type Result = { id: string; name: string; ok: boolean; why?: string };
 
@@ -182,12 +182,12 @@ export function SettingsDialog({ ai, setAi, onClose, onDevices }: { ai: boolean;
     storedAiData().then(setItems).catch(() => setItems([]));
   };
   useEffect(refresh, []);
-  // Which modules have their model files on this server (a deploy may skip models it couldn't fetch)
+  // Which modules can download their models from Hugging Face right now
   const [installed, setInstalled] = useState<Record<string, boolean>>({});
   useEffect(() => {
     Promise.all(AI_MODULES.map(async m => {
-      const files = Object.values(MODELS).filter(x => x.module === m.id).map(x => x.file);
-      return [m.id, (await Promise.all(files.map(modelInstalled))).every(Boolean)] as const;
+      const files = Object.values(MODELS).filter(x => x.module === m.id);
+      return [m.id, (await Promise.all(files.map(modelAvailable))).every(Boolean)] as const;
     })).then(r => setInstalled(Object.fromEntries(r)));
   }, []);
   const remove = async (path?: string) => {
@@ -203,14 +203,14 @@ export function SettingsDialog({ ai, setAi, onClose, onDevices }: { ai: boolean;
     <Modal title="Settings" onClose={onClose} foot={<><span className="grow" /><button className="primary" onClick={onClose}>Done</button></>}>
       <section className="setting">
         <label className="switch-row">
-          <span><b>AI features</b><br /><span className="muted">Off by default. When off, no AI model is downloaded or run, and AI tools are hidden. When on, models run on this device only — photos never leave it.</span></span>
+          <span><b>AI features</b><br /><span className="muted">Off by default. When off, no AI model is downloaded or run, and AI tools are hidden. When on, models download once from Hugging Face and run on this device only — photos never leave it.</span></span>
           <input type="checkbox" role="switch" aria-checked={ai} checked={ai} onChange={e => toggle(e.target.checked)} />
         </label>
         <ul className="ai-mods">
-          {AI_MODULES.map(m => <li key={m.id}><b>{m.name}</b> — {m.what} <span className="muted">· {!ai ? 'off' : installed[m.id] === undefined ? 'checking…' : installed[m.id] ? 'available' : 'not installed on this server'}</span></li>)}
+          {AI_MODULES.map(m => <li key={m.id}><b>{m.name}</b> — {m.what} <span className="muted">· {!ai ? 'off' : installed[m.id] === undefined ? 'checking…' : installed[m.id] ? 'available' : 'model unavailable (offline or not on Hugging Face)'}</span></li>)}
         </ul>
         <p className="muted small">This setting is per device.</p>
-        <p className="muted small">Model licenses: {Object.values(MODELS).map(m => <a key={m.file} href={m.file.replace(/\.onnx$/, '.LICENSE.txt')} target="_blank" rel="noreferrer">{m.name} ({m.license})</a>)}</p>
+        <p className="muted small">Model licenses: {Object.values(MODELS).map(m => <a key={m.file} href={m.licenseUrl} target="_blank" rel="noreferrer">{m.name} ({m.license})</a>)}</p>
       </section>
       <section className="setting">
         <h4>Devices</h4>

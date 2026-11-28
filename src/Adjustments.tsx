@@ -24,27 +24,19 @@ const SECTIONS: Record<string, Section> = {
   optics: { title: 'Optics', keys: ['distortion', 'ca'], items: ['distortion', 'ca'] },
   calibration: { title: 'Calibration', keys: ['shadowTint', 'redHue', 'redSat', 'greenHue', 'greenSat', 'blueHue', 'blueSat'], items: ['shadowTint', 'redHue', 'redSat', 'greenHue', 'greenSat', 'blueHue', 'blueSat'] },
 };
-// Mobile accordion groups (mobile-develop.png) built from the same sections
-const MOBILE: Record<string, string[]> = {
-  Light: ['tone', 'curve'], Color: ['wb', 'presence', 'mixer', 'grading'], Effects: ['effects'],
-  Detail: ['detail'], Optics: ['optics'], Calibration: ['calibration'],
-};
-const MOBILE_PRESENCE = ['vibrance', 'saturation']; // texture/clarity/dehaze live in Effects on mobile
-const MOBILE_EFFECTS_EXTRA = ['texture', 'clarity', 'dehaze'];
 const NON_GEOMETRY = SLIDERS.map(s => s.k).filter(k => !GEOMETRY.includes(k));
 
 type Props = {
-  cur?: Photo; mobile: boolean;
+  cur?: Photo;
   setVal: (k: string, x: number) => void; commit: () => void;
   resetKeys: (keys: string[], label: string) => void; auto: () => void;
 };
 
-export function Adjustments({ cur, mobile, setVal, commit, resetKeys, auto }: Props) {
+export function Adjustments({ cur, setVal, commit, resetKeys, auto }: Props) {
   const [storedOrder, setOrder] = usePref('panelOrder', Object.keys(SECTIONS));
   const order = [...storedOrder.filter(id => SECTIONS[id]), ...Object.keys(SECTIONS).filter(id => !storedOrder.includes(id))];
   const [hidden, setHidden] = usePref<string[]>('panelHidden', []);
   const [collapsed, setCollapsed] = usePref<string[]>('panelCollapsed', ['mixer', 'grading', 'detail', 'optics', 'calibration']);
-  const [openGroup, setOpenGroup] = usePref('openGroup', 'Light');
   const [mixTab, setMixTab] = usePref('mixerTab', 'hue');
 
   const b = cur ? base(cur) : undefined;
@@ -58,40 +50,11 @@ export function Adjustments({ cur, mobile, setVal, commit, resetKeys, auto }: Pr
 
   const head = (
     <div className="sec-head">
-      <h3>{mobile ? 'Adjustments' : 'Develop'}</h3>
+      <h3>Develop</h3>
       <button className="ghost bordered" onClick={auto} disabled={!cur}>Auto</button>
       <button className="ghost" onClick={() => resetKeys(NON_GEOMETRY, 'Reset (crop kept)')} disabled={!cur} title="Resets everything except crop and straighten">Reset</button>
     </div>
   );
-
-  if (mobile) {
-    return (
-      <section className="adjust mobile">
-        {head}
-        {Object.entries(MOBILE).map(([name, ids]) => {
-          let items = ids.flatMap(id => (id === 'presence' ? MOBILE_PRESENCE : SECTIONS[id].items));
-          if (name === 'Effects') items = [...MOBILE_EFFECTS_EXTRA, ...items];
-          const keys = [...new Set(ids.flatMap(id => SECTIONS[id].keys).concat(name === 'Effects' ? MOBILE_EFFECTS_EXTRA : []))];
-          const open = openGroup === name, n = edited(keys);
-          return (
-            <section key={name} className="group">
-              <button className="group-head" aria-expanded={open} aria-controls={`grp-${name}`} onClick={() => setOpenGroup(open ? '' : name)}>
-                <span>{name}</span>
-                {n > 0 && <span className="edited-count">{n} edited</span>}
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" style={{ transform: open ? 'rotate(180deg)' : undefined }}><path d="m6 9 6 6 6-6" /></svg>
-              </button>
-              {open && (
-                <div id={`grp-${name}`} className="group-body">
-                  {items.map(item)}
-                  {n > 0 && <button className="ghost group-reset" onClick={() => resetKeys(keys, `Reset ${name}`)}>Reset {name}</button>}
-                </div>
-              )}
-            </section>
-          );
-        })}
-      </section>
-    );
-  }
 
   const move = (id: string, d: number) => setOrder(() => {
     const o = [...order], i = o.indexOf(id), j = i + d;

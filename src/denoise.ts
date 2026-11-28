@@ -10,7 +10,7 @@ export type Progress = (done: number, total: number) => void;
  */
 export async function denoise(base: ImageData, strength: number, layer: ImageData | undefined, onProgress: Progress, signal: AbortSignal) {
   const { width: w, height: h, data } = base;
-  const { ort, s, gpu } = await session(MODELS.nafnet.file);
+  const { ort, s, gpu } = await session(MODELS.nafnet);
   const out = layer ? new Uint8ClampedArray(layer.data) : new Uint8ClampedArray(w * h * 4);
   const xs = tileStarts(w), ys = tileStarts(h), total = xs.length * ys.length, n = TILE * TILE;
   let done = 0;

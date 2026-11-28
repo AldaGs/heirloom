@@ -1,5 +1,5 @@
 """
-Build public/models/nafnet_sidd_w32.onnx from the official NAFNet-SIDD-width32 checkpoint (MIT, megvii-research/NAFNet).
+Build public/models/ (local only; upload to Hugging Face, see scripts/check-models.ts) nafnet_sidd_w32.onnx from the official NAFNet-SIDD-width32 checkpoint (MIT, megvii-research/NAFNet).
 No upstream ONNX exists for width32, so we export it ourselves. Needs: python3, torch, onnx (pip install torch onnx).
 Run: python3 scripts/convert_nafnet.py   (downloads the checkpoint + official model code, verifies sha256, exports)
 """

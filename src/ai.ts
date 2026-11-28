@@ -18,31 +18,50 @@ export class AiDisabledError extends Error { constructor() { super('AI features 
 export const AI_CACHE = 'heirloom-ai';
 const models = new Map<string, Promise<ArrayBuffer>>();
 
-/** Same-origin model files (fetched by `npm run fetch-models`, never from a third party at runtime). */
+/** Models download straight from Hugging Face (never bundled into the deploy). Only model weights are fetched —
+ *  photos never leave the device — and every file is sha256-checked before it's cached or run. */
+const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
+/** Repo with the models we convert ourselves (NAFNet, MobileSAM: scripts/convert_*.py). Override with VITE_HF_MODELS_REPO. */
+export const MODELS_REPO = env?.VITE_HF_MODELS_REPO || 'AldaGs/heirloom-models';
+const hf = (repo: string, rev: string, file: string) => `https://huggingface.co/${repo}/resolve/${rev}/${file}`;
+export type Model = { file: string; url: string; sha256: string; name: string; license: string; licenseUrl: string; module: string };
+const m = (repo: string, rev: string, file: string, sha256: string, name: string, license: string, licenseUrl: string, module: string): Model =>
+  ({ file, url: hf(repo, rev, file), sha256, name, license, licenseUrl, module });
 export const MODELS = {
-  migan: { file: 'models/migan_pipeline_v2.onnx', name: 'MI-GAN 512 (Places2)', license: 'MIT — Picsart AI Research', module: 'remove' },
-  nafnet: { file: 'models/nafnet_sidd_w32.onnx', name: 'NAFNet SIDD width32', license: 'MIT — Megvii Research', module: 'denoise' },
-  samEnc: { file: 'models/mobilesam_encoder.onnx', name: 'MobileSAM encoder', license: 'Apache-2.0 — Chaoning Zhang et al.', module: 'mask' },
-  samDec: { file: 'models/mobilesam_decoder.onnx', name: 'MobileSAM decoder', license: 'Apache-2.0 — Chaoning Zhang et al.', module: 'mask' },
-} as const;
+  migan: m('andraniksargsyan/migan', '406830d0fa60666da0071c342ad2fbc8f30c5c64', 'migan_pipeline_v2.onnx', '6f1f3530a1a2324b19752018ce756088b07973cda8d7d890034ace5c8a48c40b',
+    'MI-GAN 512 (Places2)', 'MIT — Picsart AI Research', 'https://raw.githubusercontent.com/Picsart-AI-Research/MI-GAN/main/LICENSE-WEIGHTS', 'remove'),
+  nafnet: m(MODELS_REPO, 'main', 'nafnet_sidd_w32.onnx', '3c19cdf9639c1458ebdfa0b2d77a3a6d5652ee60e0c7c9d9437b5b26651792d1',
+    'NAFNet SIDD width32', 'MIT — Megvii Research', 'https://github.com/megvii-research/NAFNet/blob/main/LICENSE', 'denoise'),
+  samEnc: m(MODELS_REPO, 'main', 'mobilesam_encoder.onnx', '8c8c964f4bd5d850f9a4ee680d01fd3cccb667d04daaa7d14be878a214cdcee8',
+    'MobileSAM encoder', 'Apache-2.0 — Chaoning Zhang et al.', 'https://github.com/ChaoningZhang/MobileSAM/blob/master/LICENSE', 'mask'),
+  samDec: m(MODELS_REPO, 'main', 'mobilesam_decoder.onnx', 'ed3ed0820c26da1d744c5e5c3e858e9f80765e422fae03b9ecb5412b85ba0c32',
+    'MobileSAM decoder', 'Apache-2.0 — Chaoning Zhang et al.', 'https://github.com/ChaoningZhang/MobileSAM/blob/master/LICENSE', 'mask'),
+} satisfies Record<string, Model>;
 export type ModelId = keyof typeof MODELS;
+const MODEL_HOSTS = ['huggingface.co'];
 
-/** The only path to an AI model. Throws when AI is off; same-origin only, so nothing leaves the device. */
-export function loadModel(path: string): Promise<ArrayBuffer> {
+/** The only path to an AI model. Throws when AI is off; only this app or Hugging Face, and the bytes must match `sha256`. */
+export function loadModel(url: string, sha256?: string): Promise<ArrayBuffer> {
   if (!aiEnabled()) return Promise.reject(new AiDisabledError());
-  if (/^[a-z]+:/i.test(path) && new URL(path).origin !== location.origin) return Promise.reject(new Error('AI models must be served from this app (on-device only)'));
-  if (!models.has(path)) models.set(path, fetchCached(path).catch(e => { models.delete(path); throw e; }));
-  return models.get(path)!;
+  if (/^[a-z]+:/i.test(url)) {
+    const u = new URL(url);
+    if (u.origin !== location.origin && !(u.protocol === 'https:' && MODEL_HOSTS.includes(u.hostname))) return Promise.reject(new Error('AI models must come from this app or Hugging Face (on-device only)'));
+  }
+  if (!models.has(url)) models.set(url, fetchCached(url, sha256).catch(e => { models.delete(url); throw e; }));
+  return models.get(url)!;
 }
 
-async function fetchCached(path: string) {
+const hex = (b: ArrayBuffer) => Array.from(new Uint8Array(b), x => x.toString(16).padStart(2, '0')).join('');
+async function fetchCached(url: string, sha256?: string) {
   const c = typeof caches !== 'undefined' ? await caches.open(AI_CACHE).catch(() => undefined) : undefined;
-  const hit = await c?.match(path);
+  const hit = await c?.match(url);
   if (hit) return hit.arrayBuffer();
-  const r = await fetch(path);
-  if (!r.ok) throw new Error(r.status === 404 ? 'model not installed on this server (run npm run fetch-models)' : `model ${path}: ${r.status}`);
-  await c?.put(path, r.clone()).catch(() => { /* quota: still works, just not cached */ });
-  return r.arrayBuffer();
+  const r = await fetch(url).catch(() => { throw new Error('couldn\'t download the model (offline, or Hugging Face unreachable)'); });
+  if (!r.ok) throw new Error(r.status === 404 ? 'model not found on Hugging Face' : `model download failed: HTTP ${r.status}`);
+  const buf = await r.arrayBuffer();
+  if (sha256 && hex(await crypto.subtle.digest('SHA-256', buf)) !== sha256) throw new Error('downloaded model failed its integrity check (sha256 mismatch)');
+  await c?.put(url, new Response(buf, { headers: { 'content-type': 'application/octet-stream', 'content-length': String(buf.byteLength) } })).catch(() => { /* quota: still works, just not cached */ });
+  return buf;
 }
 
 export type StoredItem = { url: string; bytes: number };
@@ -53,7 +72,7 @@ export async function storedAiData(): Promise<StoredItem[]> {
   for (const req of await c.keys()) {
     const r = await c.match(req);
     const n = +(r?.headers.get('content-length') ?? 0) || (r ? (await r.blob()).size : 0);
-    out.push({ url: new URL(req.url).pathname, bytes: n });
+    out.push({ url: req.url, bytes: n });
   }
   return out;
 }
@@ -67,10 +86,12 @@ export async function removeAiData(path?: string) {
   await c.delete(path);
 }
 
-/** Is this model file on this server? (HEAD only, nothing downloaded; an SPA fallback page doesn't count.) */
-export async function modelInstalled(file: string) {
-  const r = await fetch(file, { method: 'HEAD' }).catch(() => null);
-  return !!r?.ok && !/text\/html/.test(r.headers.get('content-type') ?? '');
+/** Can this model be downloaded? (HEAD only, nothing downloaded; Hugging Face reports the file's sha256 as X-Linked-ETag.) */
+export async function modelAvailable(mdl: Model) {
+  const r = await fetch(mdl.url, { method: 'HEAD' }).catch(() => null);
+  if (!r?.ok) return false;
+  const tag = r.headers.get('x-linked-etag')?.replace(/"/g, '');
+  return !tag || tag === mdl.sha256;
 }
 
 /** Modules that will use the gate. Status is shown in Settings so users see exactly what the switch covers. */

@@ -26,6 +26,8 @@ import { maskSize } from './sam-core.ts';
 import { MASKS, MASK_ADJ, maskKey } from './sliders.ts';
 import type { Pt } from './sam-core.ts';
 import { NoiseField, ProceduralImageLoader } from './ProceduralImageLoader.tsx';
+import { MobileDock } from './MobileDock.tsx';
+import { ArrowUUpLeft, ArrowUUpRight, CaretLeft, CornersOut, Export } from '@phosphor-icons/react';
 
 type Zoom = 'fit' | number; // number: 1 = 100% (one image pixel per device pixel)
 const ZOOM_MAX = 8;
@@ -515,19 +517,37 @@ export function App() {
   const list = photos.filter(p => FILTERS[filter][1](p) && inAlbum(album)(p)).sort(byDate); // Library order, also used by Cull + filmstrip
   const loading = mode === 'develop' && !!cur && loadedId !== cur.id;
   const activePreset = cur && PRESETS.find(p => same(cur.v, { ...base(cur), ...p.v }))?.name;
+  const applyPreset = (name: string) => { const pr = PRESETS.find(p => p.name === name); if (pr) update(ph => push(ph, { ...base(ph), ...pr.v }, `Preset: ${pr.name}`)); };
+  const sheet = masking && cur ? (
+    <MaskPanel ai={ai} slots={slots} sel={maskSel} setSel={setMaskSel} mode={mMode} setMode={setMMode} busy={mkBusy} msg={mkMsg} v={cur.v} byKey={byKey}
+      setVal={setVal} commit={commit} showMask={showMask} setShowMask={setShowMask}
+      onAI={newMask} onFinishAI={finishMask} onCancel={() => { endMaskEdit(); setMkMsg(''); }}
+      onLinear={() => setMMode({ kind: 'linear' })} onRadial={() => setMMode({ kind: 'radial' })}
+      onBrushNew={() => startBrush(freeSlot, undefined, `Mask ${freeSlot + 1} (brush)`)} onRefine={() => startBrush(maskSel, maskImgs[maskSel], `Refine mask ${maskSel + 1}`)}
+      onApplyBrush={() => work && commitMask(work.slot, work.img, work.label)}
+      onDelete={deleteMask} done={() => { endMaskEdit(); setTool('edit'); }} />
+  ) : tool === 'denoise' && ai && cur ? (
+    <DenoisePanel strength={dnStrength} setStrength={setDnStrength} progress={dn} msg={dnMsg} pixels={cur.w * cur.h}
+      onRun={runDenoise} onCancel={() => dnAbort.current?.abort()} done={() => setTool('edit')} />
+  ) : removing && cur ? (
+    <RemovePanel size={brush} setSize={setBrush} busy={rmBusy} msg={rmMsg} hasRetouch={!!cur.retouch} done={() => setTool('edit')}
+      onRemove={runRemove} onClear={() => { const b = brushRef.current; b?.getContext('2d')!.clearRect(0, 0, b.width, b.height); }}
+      onRevert={() => { update(p => syncLayers(pushStep(p, 'Revert removals', { rt: undefined }))); setRmMsg('Reverted. Undo with Ctrl+Z.'); }} />
+  ) : null;
 
   return (
     <div className={'app' + (mode !== 'develop' ? ' lib' : '') + (focus && mode === 'develop' ? ' focus' : '') + (mobile ? ' mobile' : '')} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); addFiles(e.dataTransfer.files); }}>
       {mobile ? (
         <header className="top m-top">
           {mode === 'develop' ? <>
-            <button className="icon" aria-label="Back to library" onClick={() => { setMode('library'); setFocus(false); }}><Icon d="M15 18l-6-6 6-6" /></button>
+            <button className="icon" aria-label="Back to library" onClick={() => { setMode('library'); setFocus(false); }}><CaretLeft size={22} /></button>
             <div className="m-title">
               <div>{cur?.name.replace(/\.[^.]+$/, '')}</div>
               <div className="m-sub">{busy || [cur?.raw ? 'RAW' : cur?.name.split('.').pop()?.toUpperCase(), cur?.exif.aperture && `ƒ/${+cur.exif.aperture.toFixed(1)}`, cur?.exif.shutter && fmtShutter(cur.exif.shutter), cur?.exif.iso && `ISO ${cur.exif.iso}`].filter(Boolean).join(' · ')}</div>
             </div>
-            <button className="icon" aria-label="Undo" onClick={undo} disabled={!cur || cur.hi === 0}><Icon d="M9 14 4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3" /></button>
-            <button className="icon accent" aria-label="Export" onClick={exportJpeg} disabled={!cur}><Icon d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" /></button>
+            <button className="icon" aria-label="Undo" onClick={undo} disabled={!cur || cur.hi === 0}><ArrowUUpLeft size={22} /></button>
+            <button className="icon" aria-label="Redo" onClick={redo} disabled={!cur || cur.hi === cur.hist.length - 1}><ArrowUUpRight size={22} /></button>
+            <button className="icon accent" aria-label="Export" onClick={exportJpeg} disabled={!cur}><Export size={22} /></button>
           </> : <h1 className="m-h1">Library</h1>}
           {locked.map(f => <button key={f.key} className="ghost bordered" onClick={() => reconnect(f)}>Reconnect</button>)}
         </header>
@@ -617,7 +637,7 @@ export function App() {
         {mobile && cur && <>
           <canvas className="mini-hist" ref={miniHist} width={192} height={64} aria-hidden="true" />
           <CompareButton className="pill m-compare" bypass={bypass} setBypass={setBypass} />
-          <button className={'pill m-focus' + (focus ? ' on' : '')} onClick={() => setFocus(f => !f)} aria-pressed={focus}><Icon d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /> Focus</button>
+          <button className={'pill m-focus' + (focus ? ' on' : '')} onClick={() => setFocus(f => !f)} aria-pressed={focus} aria-label="Focus mode" title="Focus mode"><CornersOut size={18} /></button>
         </>}
         {focus && cur && (
           <div className="focus-enc" role="group" aria-label="Focus mode">
@@ -658,58 +678,30 @@ export function App() {
           <span>ISO {cur?.exif.iso || '—'}</span><span>{cur?.exif.focal ? Math.round(cur.exif.focal) : '—'} mm</span>
           <span>ƒ/{cur?.exif.aperture ? +cur.exif.aperture.toFixed(1) : '—'}</span><span>{fmtShutter(cur?.exif.shutter)}</span>
         </div>
-        <div className="tools" role="tablist">
-          <ToolTab id="edit" tool={tool} setTool={setTool} label="Edit" d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4" />
-          <ToolTab id="crop" tool={tool} setTool={setTool} label="Crop & straighten (R)" d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14" />
-          {ai && <ToolTab id="denoise" tool={tool} setTool={setTool} label="AI Denoise (on-device)" d="M4 4h2v2H4zM10 4h2v2h-2zM16 4h2v2h-2zM7 10h2v2H7zM13 10h2v2h-2zM4 16h2v2H4zM10 16h2v2h-2zM16 16h2v2h-2zM19 10h2v2h-2z" />}
-          {ai && <ToolTab id="remove" tool={tool} setTool={setTool} label="Remove (AI, on-device)" d="m3 21 12-12M15 4V2M15 10V8M19 6h2M11 6h2M17.5 3.5 19 2M17.5 8.5 19 10" />}
-          <ToolTab id="mask" tool={tool} setTool={setTool} label="Masking" d="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" />
-          <ToolTab id="info" tool={tool} setTool={setTool} label="Info (EXIF)" d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" />
-        </div>
-        {masking && cur ? (
-          <MaskPanel ai={ai} slots={slots} sel={maskSel} setSel={setMaskSel} mode={mMode} setMode={setMMode} busy={mkBusy} msg={mkMsg} v={cur.v} byKey={byKey}
-            setVal={setVal} commit={commit} showMask={showMask} setShowMask={setShowMask}
-            onAI={newMask} onFinishAI={finishMask} onCancel={() => { endMaskEdit(); setMkMsg(''); }}
-            onLinear={() => setMMode({ kind: 'linear' })} onRadial={() => setMMode({ kind: 'radial' })}
-            onBrushNew={() => startBrush(freeSlot, undefined, `Mask ${freeSlot + 1} (brush)`)} onRefine={() => startBrush(maskSel, maskImgs[maskSel], `Refine mask ${maskSel + 1}`)}
-            onApplyBrush={() => work && commitMask(work.slot, work.img, work.label)}
-            onDelete={deleteMask} done={() => { endMaskEdit(); setTool('edit'); }} />
-        ) : tool === 'denoise' && ai && cur ? (
-          <DenoisePanel strength={dnStrength} setStrength={setDnStrength} progress={dn} msg={dnMsg} pixels={cur.w * cur.h}
-            onRun={runDenoise} onCancel={() => dnAbort.current?.abort()} done={() => setTool('edit')} />
-        ) : removing && cur ? (
-          <RemovePanel size={brush} setSize={setBrush} busy={rmBusy} msg={rmMsg} hasRetouch={!!cur.retouch} done={() => setTool('edit')}
-            onRemove={runRemove} onClear={() => { const b = brushRef.current; b?.getContext('2d')!.clearRect(0, 0, b.width, b.height); }}
-            onRevert={() => { update(p => syncLayers(pushStep(p, 'Revert removals', { rt: undefined }))); setRmMsg('Reverted. Undo with Ctrl+Z.'); }} />
-        ) : cropping && cur ? (
-          <CropPanel v={cur.v} aspect={aspect} setAspect={setAspect} angle={byKey.angle} setAngle={x => setVal('angle', x)} commit={commit}
-            reset={() => resetKeys(GEOMETRY, 'Reset crop')} done={() => setTool('edit')} turn={turn} flip={flip} />
-        ) : tool === 'info' && !mobile ? (
-          <InfoPanel p={cur} />
-        ) : mobile && tool === 'presets' ? (
-          <div className="m-presets">
-            {PRESETS.map(p => (
-              <button key={p.name} className={'preset' + (activePreset === p.name ? ' on' : '')} disabled={!cur}
-                onClick={() => update(ph => push(ph, { ...base(ph), ...p.v }, `Preset: ${p.name}`))}>
-                <span style={{ background: p.swatch }} />{p.name}
-              </button>
-            ))}
+        {mobile && mode === 'develop' ? (
+          <MobileDock cur={cur} ai={ai} tool={tool} setTool={setTool} setVal={setVal} commit={commit} resetKeys={resetKeys} auto={auto} sheet={sheet}
+            presets={{ active: activePreset, apply: applyPreset }}
+            crop={{ aspect, setAspect, turn, flip, reset: () => resetKeys(GEOMETRY, 'Reset crop') }} />
+        ) : <>
+          <div className="tools" role="tablist">
+            <ToolTab id="edit" tool={tool} setTool={setTool} label="Edit" d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4" />
+            <ToolTab id="crop" tool={tool} setTool={setTool} label="Crop & straighten (R)" d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14" />
+            {ai && <ToolTab id="denoise" tool={tool} setTool={setTool} label="AI Denoise (on-device)" d="M4 4h2v2H4zM10 4h2v2h-2zM16 4h2v2h-2zM7 10h2v2H7zM13 10h2v2h-2zM4 16h2v2H4zM10 16h2v2h-2zM16 16h2v2h-2zM19 10h2v2h-2z" />}
+            {ai && <ToolTab id="remove" tool={tool} setTool={setTool} label="Remove (AI, on-device)" d="m3 21 12-12M15 4V2M15 10V8M19 6h2M11 6h2M17.5 3.5 19 2M17.5 8.5 19 10" />}
+            <ToolTab id="mask" tool={tool} setTool={setTool} label="Masking" d="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" />
+            <ToolTab id="info" tool={tool} setTool={setTool} label="Info (EXIF)" d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" />
           </div>
-        ) : (
-          <Adjustments cur={cur} mobile={mobile} setVal={setVal} commit={commit} resetKeys={resetKeys} auto={auto} />
-        )}
+          {sheet ?? (cropping && cur ? (
+            <CropPanel v={cur.v} aspect={aspect} setAspect={setAspect} angle={byKey.angle} setAngle={x => setVal('angle', x)} commit={commit}
+              reset={() => resetKeys(GEOMETRY, 'Reset crop')} done={() => setTool('edit')} turn={turn} flip={flip} />
+          ) : tool === 'info' ? (
+            <InfoPanel p={cur} />
+          ) : (
+            <Adjustments cur={cur} setVal={setVal} commit={commit} resetKeys={resetKeys} auto={auto} />
+          ))}
+        </>}
       </aside>
 
-      {mobile && mode === 'develop' && (
-        <nav className="m-nav" aria-label="Edit tools">
-          <MNav icon="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z" label="Presets" on={tool === 'presets'} onClick={() => setTool('presets')} />
-          <MNav icon="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14" label="Crop" on={tool === 'crop'} onClick={() => setTool('crop')} />
-          <MNav icon="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M16 4v4M10 10v4M18 16v4" label="Edit" on={tool === 'edit' || tool === 'info'} onClick={() => setTool('edit')} />
-          <MNav icon="M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18" label="Masking" on={tool === 'mask'} onClick={() => setTool('mask')} />
-          {ai && <MNav icon="M4 4h2v2H4zM10 4h2v2h-2zM16 4h2v2h-2zM7 10h2v2H7zM13 10h2v2h-2zM4 16h2v2H4zM10 16h2v2h-2z" label="Denoise" on={tool === 'denoise'} onClick={() => setTool('denoise')} />}
-          {ai && <MNav icon="m3 21 12-12M15 4V2M15 10V8M19 6h2M11 6h2" label="Remove" on={tool === 'remove'} onClick={() => setTool('remove')} />}
-        </nav>
-      )}
       {mobile && mode !== 'develop' && (
         <nav className="m-nav" aria-label="Sections">
           <MNav icon="M3 3h18v18H3zM8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM21 15l-5-5L5 21" label="Photos" on />
